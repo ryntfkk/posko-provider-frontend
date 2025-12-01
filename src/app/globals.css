@@ -1,0 +1,34 @@
+@import "tailwindcss";
+/* --- TAMBAHKAN BAGIAN INI --- */
+@layer base {
+  /* Paksa semua link mewarisi warna & dekorasi text dari parent-nya */
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+}
+/* --------------------------- */
+:root {
+  --background: #f9fafb; /* gray-50 */
+  --foreground: #1f2937; /* gray-800 */
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  }
+
+/*
+  Leaflet membawa gaya bawaan yang mewarnai elemen <a> di dalam map menjadi biru
+  dan tombol toolbar menjadi hitam. Karena stylesheet tersebut diimport secara
+  global di LocationPicker, warnanya merembet ke UI map dan tidak mengikuti
+  palet aplikasi. Override berikut menyelaraskan warna teks map agar mewarisi
+  warna teks induk sehingga konsisten dengan tema.
+*/
+.leaflet-container a,
+.leaflet-bar a,
+.leaflet-control-attribution,
+.leaflet-control-attribution a {
+  color: inherit;
+  text-decoration: none;
+}
