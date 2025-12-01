@@ -1,4 +1,3 @@
-// src/app/(auth)/login/page.tsx
 'use client';
 
 import Link from 'next/link';
@@ -44,31 +43,17 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Helper to set cookie
   const setCookie = (name: string, value: string, days: number = 7) => {
     const expires = new Date();
     expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
     document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;SameSite=Lax`;
   };
 
-  // Get redirect URL based on role
-  const getRedirectUrl = (role: string): string => {
-    switch (role) {
-      case 'admin':
-        return '/admin/dashboard';
-      case 'provider':
-        return '/dashboard';
-      case 'customer':
-      default:
-        return '/';
-    }
-  };
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (! email.includes('@')) {
+    if (!email.includes('@')) {
       setErrorMsg('Mohon masukkan alamat email yang valid.');
       return;
     }
@@ -83,19 +68,20 @@ export default function LoginPage() {
       const result = await loginUser({ email, password });
       const token = result.data.tokens.accessToken;
       
-      // Save token to localStorage
       localStorage.setItem('posko_token', token);
-      
-      // Save token to cookie for middleware
       setCookie('posko_token', token);
       
-      // Decode token to get role
       const decoded = jwtDecode<DecodedToken>(token);
       
-      // Redirect based on role
-      const redirectUrl = getRedirectUrl(decoded.role);
+      // Validasi Role: Hanya Provider/Admin yang boleh masuk sini
+      if (decoded.role !== 'provider' && decoded.role !== 'admin') {
+        setErrorMsg('Akun ini bukan akun Mitra. Silakan gunakan aplikasi Customer.');
+        setIsLoading(false);
+        return;
+      }
       
-      router.push(redirectUrl);
+      // Redirect ke Dashboard
+      router.push('/dashboard');
       router.refresh();
     } catch (error: any) {
       const message = error.response?.data?.message || 'Gagal login, periksa email atau password.';
@@ -111,19 +97,19 @@ export default function LoginPage() {
       <div className="w-full lg:w-1/2 flex flex-col justify-center px-6 md:px-16 lg:px-24 py-12 relative bg-white z-10">
         
         {/* Logo */}
-        <Link href="/" className="absolute top-8 left-6 lg:left-8 flex items-center gap-2 group">
-          <div className="w-9 h-9 relative bg-white shadow-sm rounded-lg p-1 border border-gray-100 group-hover:border-red-100 transition-colors">
+        <div className="absolute top-8 left-6 lg:left-8 flex items-center gap-2">
+          <div className="w-9 h-9 relative bg-white shadow-sm rounded-lg p-1 border border-gray-100">
             <Image src="/logo.png" alt="Logo Posko" fill className="object-contain"/>
           </div>
-          <span className="text-xl font-bold tracking-tight group-hover:text-red-600 transition-colors">
-            Posko<span className="text-red-600">.</span>
+          <span className="text-xl font-bold tracking-tight">
+            Posko<span className="text-red-600">.</span> <span className="text-gray-400 font-medium text-sm ml-1">Mitra</span>
           </span>
-        </Link>
+        </div>
 
         <div className="max-w-md w-full mx-auto mt-10 lg:mt-0">
           <div className="mb-10">
-            <h1 className="text-3xl lg:text-4xl font-black text-gray-900 mb-3 tracking-tight">Selamat Datang! </h1>
-            <p className="text-gray-500 text-base lg:text-lg">Masuk untuk mengelola pesanan dan mencari jasa profesional.</p>
+            <h1 className="text-3xl lg:text-4xl font-black text-gray-900 mb-3 tracking-tight">Area Mitra</h1>
+            <p className="text-gray-500 text-base lg:text-lg">Masuk untuk mengelola pesanan dan pekerjaan.</p>
           </div>
           
           <form onSubmit={handleLogin} className="space-y-6 w-full">
@@ -138,14 +124,13 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Email Input */}
             <div className="space-y-2">
-              <label htmlFor="email" className="block text-gray-700 text-xs font-bold uppercase tracking-wider">Email Address</label>
+              <label htmlFor="email" className="block text-gray-700 text-xs font-bold uppercase tracking-wider">Email Mitra</label>
               <input
                 id="email"
                 type="email"
                 className="w-full px-5 py-4 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 focus:bg-white focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all outline-none"
-                placeholder="nama@email.com"
+                placeholder="mitra@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={isLoading}
@@ -153,7 +138,6 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Password Input */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <label htmlFor="password" className="block text-gray-700 text-xs font-bold uppercase tracking-wider">Password</label>
@@ -172,7 +156,7 @@ export default function LoginPage() {
                 />
                 <button 
                   type="button"
-                  onClick={() => setShowPassword(! showPassword)}
+                  onClick={() => setShowPassword(!showPassword)}
                   className="absolute inset-y-0 right-0 px-4 flex items-center focus:outline-none"
                   tabIndex={-1}
                 >
@@ -181,7 +165,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
@@ -193,67 +176,49 @@ export default function LoginPage() {
                   <span>Memproses...</span>
                 </>
               ) : (
-                'Masuk Sekarang'
+                'Masuk Dashboard'
               )}
             </button>
           </form>
 
           <div className="mt-10 text-center">
             <p className="text-sm text-gray-500">
-              Belum memiliki akun? {' '}
-              <Link href="/register" className="font-bold text-red-600 hover:text-red-700 hover:underline decoration-2 underline-offset-2 transition-all">
-                Daftar Gratis
-              </Link>
+              Belum terdaftar sebagai mitra? <br/>
+              <span className="font-bold text-gray-800">Hubungi Admin untuk pendaftaran.</span>
             </p>
           </div>
         </div>
 
-        {/* Mobile Footer */}
         <div className="absolute bottom-4 left-0 w-full text-center lg:hidden">
-          <span className="text-[10px] text-gray-300">© 2024 Posko App</span>
+          <span className="text-[10px] text-gray-300">© 2024 Posko Mitra</span>
         </div>
       </div>
 
-      {/* Right Column: Visual (Desktop Only) */}
+      {/* Right Column: Visual */}
       <div className="hidden lg:block w-1/2 relative bg-gray-900 overflow-hidden">
         <Image 
-          src="https://images.unsplash.com/photo-1521791136064-7986c2920216?q=80&w=1969&auto=format&fit=crop" 
-          alt="Login Visual Professional"
+          src="https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?q=80&w=2070&auto=format&fit=crop" 
+          alt="Technician Visual"
           fill
           className="object-cover opacity-60 mix-blend-overlay"
           priority
         />
-        
         <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-b from-transparent via-gray-900/40 to-gray-900"></div>
-        
         <div className="absolute inset-0 flex flex-col justify-between p-16 text-white z-20">
           <div className="flex justify-end">
             <div className="px-4 py-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20 text-xs font-medium">
-              ⭐ Dipercaya oleh 10,000+ Mitra
+              Aplikasi Khusus Mitra
             </div>
           </div>
-          
           <div className="space-y-6">
             <div className="w-16 h-1 bg-red-600 rounded-full"></div>
             <h2 className="text-5xl font-bold leading-tight tracking-tight">
-              Solusi Cepat <br/> 
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">Masalah Rumah.</span>
+              Kelola Pekerjaan <br/> 
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">Lebih Efisien.</span>
             </h2>
             <p className="text-gray-300 text-lg max-w-md leading-relaxed">
-              &quot;Posko membantu saya menemukan teknisi AC dalam 15 menit saat darurat. Sangat direkomendasikan! &quot;
+              Pantau order masuk, atur jadwal, dan terima pembayaran dengan mudah melalui dashboard Posko Mitra.
             </p>
-            <div className="flex items-center gap-4 pt-4">
-              <div className="flex -space-x-3">
-                {[1,2,3].map(i => (
-                  <div key={i} className="w-10 h-10 rounded-full border-2 border-gray-900 bg-gray-700 overflow-hidden">
-                    <img src={`https://api.dicebear.com/7.x/avataaars/svg? seed=${i}`} alt="Avatar" className="w-full h-full" />
-                  </div>
-                ))}
-              </div>
-              <div className="text-sm font-medium text-gray-400">
-                <span className="text-white font-bold">4.9/5.0</span> Rating Rata-rata
-              </div>
-            </div>
           </div>
         </div>
       </div>

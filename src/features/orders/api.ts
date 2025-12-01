@@ -1,29 +1,11 @@
 import api from '@/lib/axios';
-import { CreateOrderPayload, Order } from './types';
+import { Order } from './types';
 
-// Buat Pesanan Baru
-export const createOrder = async (payload: CreateOrderPayload) => {
-  const response = await api.post<{ message: string; data: Order }>('/orders', payload);
-  return response.data;
-};
-
-export const fetchMyOrders = async (view: 'customer' | 'provider' = 'customer') => {
+// Ambil Pesanan Saya (Provider View)
+export const fetchMyOrders = async (view: 'customer' | 'provider' = 'provider') => {
   const response = await api.get<{ data: Order[] }>('/orders', {
     params: { view } 
   }); 
-  return response.data;
-};
-
-// Ambil Pesanan Masuk (Untuk Provider) - Jika backend belum ada route ini, 
-// pastikan Anda menambahkannya di backend atau gunakan filter di endpoint utama.
-export const fetchIncomingOrders = async () => {
-  const response = await api.get<{ data: Order[] }>('/orders/incoming');
-  return response.data;
-};
-
-// [TAMBAHAN] Update progres kerja provider
-export const updateOrderStatus = async (orderId: string, status: string) => {
-  const response = await api.patch<{ message: string; data: Order }>(`/orders/${orderId}/status`, { status });
   return response.data;
 };
 
@@ -32,8 +14,21 @@ export const fetchOrderById = async (orderId: string) => {
   const response = await api.get<{ data: Order }>(`/orders/${orderId}`);
   return response.data;
 };
+
+// Update status order (Terima, Jalan, Kerja, Selesai)
+export const updateOrderStatus = async (orderId: string, status: string) => {
+  const response = await api.patch<{ message: string; data: Order }>(`/orders/${orderId}/status`, { status });
+  return response.data;
+};
+
+// Terima order (khusus status pending/searching -> accepted)
 export const acceptOrder = async (orderId: string) => {
   const response = await api.patch<{ message: string; data: Order }>(`/orders/${orderId}/accept`, {});
   return response.data;
 };
 
+// Fetch incoming orders (Pesanan Masuk)
+export const fetchIncomingOrders = async () => {
+  const response = await api.get<{ data: Order[] }>('/orders/incoming');
+  return response.data;
+};
