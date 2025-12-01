@@ -27,10 +27,13 @@ const Spinner = () => (
   </svg>
 );
 
+// Update Interface DecodedToken agar sesuai dengan struktur data user
 interface DecodedToken {
   userId: string;
   email: string;
-  role: 'customer' | 'provider' | 'admin';
+  role?: string; 
+  activeRole?: string;
+  roles?: string[];
   exp: number;
 }
 
@@ -73,10 +76,23 @@ export default function LoginPage() {
       
       const decoded = jwtDecode<DecodedToken>(token);
       
-      // Validasi Role: Hanya Provider/Admin yang boleh masuk sini
-      if (decoded.role !== 'provider' && decoded.role !== 'admin') {
+      // Validasi Role yang lebih fleksibel (Mengecek activeRole, role tunggal, atau array roles)
+      const isProvider = 
+        decoded.activeRole === 'provider' || 
+        decoded.role === 'provider' || 
+        (decoded.roles && decoded.roles.includes('provider'));
+
+      const isAdmin = 
+        decoded.activeRole === 'admin' || 
+        decoded.role === 'admin' || 
+        (decoded.roles && decoded.roles.includes('admin'));
+
+      // Jika bukan Provider dan bukan Admin, tolak akses
+      if (!isProvider && !isAdmin) {
         setErrorMsg('Akun ini bukan akun Mitra. Silakan gunakan aplikasi Customer.');
         setIsLoading(false);
+        // Hapus token jika gagal validasi role agar tidak tersimpan
+        localStorage.removeItem('posko_token');
         return;
       }
       

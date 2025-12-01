@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { fetchProfile, logout, updateProfile } from '@/features/auth/api';
-import { fetchMyProviderProfile, updateProviderServices, updateSchedule, toggleOnlineStatus, ScheduleItem } from '@/features/providers/api';
+import { fetchMyProviderProfile, updateProviderServices, toggleOnlineStatus } from '@/features/providers/api';
 import { fetchServices } from '@/features/services/api';
 import { Service } from '@/features/services/types';
 import api from '@/lib/axios';
@@ -23,16 +23,6 @@ interface ProviderService {
   price: number;
   isActive: boolean;
 }
-
-const DEFAULT_SCHEDULE: ScheduleItem[] = [
-  { dayIndex: 0, dayName: 'Minggu', isOpen: false, start: '09:00', end: '17:00' },
-  { dayIndex: 1, dayName: 'Senin', isOpen: true, start: '09:00', end: '17:00' },
-  { dayIndex: 2, dayName: 'Selasa', isOpen: true, start: '09:00', end: '17:00' },
-  { dayIndex: 3, dayName: 'Rabu', isOpen: true, start: '09:00', end: '17:00' },
-  { dayIndex: 4, dayName: 'Kamis', isOpen: true, start: '09:00', end: '17:00' },
-  { dayIndex: 5, dayName: 'Jumat', isOpen: true, start: '09:00', end: '17:00' },
-  { dayIndex: 6, dayName: 'Sabtu', isOpen: false, start: '09:00', end: '14:00' },
-];
 
 export default function ProviderSettingsPage() {
   const router = useRouter();
@@ -53,8 +43,7 @@ export default function ProviderSettingsPage() {
   const [selectedNewService, setSelectedNewService] = useState<string>('');
   const [newServicePrice, setNewServicePrice] = useState<number>(0);
 
-  // Schedule State
-  const [schedule, setSchedule] = useState<ScheduleItem[]>(DEFAULT_SCHEDULE);
+  // Online Status State
   const [isOnline, setIsOnline] = useState(false);
 
   useEffect(() => {
@@ -71,9 +60,7 @@ export default function ProviderSettingsPage() {
         if (providerRes.data?.services) {
           setServices(providerRes.data.services);
         }
-        if (providerRes.data?.schedule && providerRes.data.schedule.length > 0) {
-          setSchedule(providerRes.data.schedule);
-        }
+        
         setIsOnline(providerRes.data?.isOnline || false);
 
         const servicesRes = await fetchServices();
@@ -207,19 +194,6 @@ export default function ProviderSettingsPage() {
     }
   };
 
-  const handleSaveSchedule = async () => {
-    setIsSaving(true);
-    try {
-      await updateSchedule(schedule);
-      alert('Jadwal berhasil disimpan!');
-    } catch (error) {
-      console.error('Gagal menyimpan jadwal:', error);
-      alert('Gagal menyimpan jadwal');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleToggleOnline = async () => {
     try {
       const newStatus = !isOnline;
@@ -229,12 +203,6 @@ export default function ProviderSettingsPage() {
       console.error('Gagal mengubah status online:', error);
       alert('Gagal mengubah status');
     }
-  };
-
-  const handleScheduleChange = (dayIndex: number, field: keyof ScheduleItem, value: string | boolean) => {
-    setSchedule(prev => prev.map(item =>
-      item.dayIndex === dayIndex ?  { ...item, [field]: value } : item
-    ));
   };
 
   const handleLogout = async () => {
@@ -293,7 +261,6 @@ export default function ProviderSettingsPage() {
           {[
             { id: 'profile', label: 'Profil', icon: '👤' },
             { id: 'services', label: 'Layanan', icon: '🛠️' },
-            { id: 'schedule', label: 'Jadwal', icon: '📅' },
             { id: 'account', label: 'Akun', icon: '⚙️' },
           ].map((tab) => (
             <button
@@ -476,70 +443,6 @@ export default function ProviderSettingsPage() {
                   ))}
                 </div>
               )}
-            </div>
-          )}
-
-          {/* SCHEDULE TAB */}
-          {activeTab === 'schedule' && (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">Jam Operasional</h2>
-                <p className="text-sm text-gray-500">Atur jadwal ketersediaan Anda untuk menerima pesanan</p>
-              </div>
-
-              <div className="space-y-2">
-                {schedule.map((day) => (
-                  <div
-                    key={day.dayIndex}
-                    className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
-                      day.isOpen ? 'bg-white border-gray-100' : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-[120px]">
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={day.isOpen}
-                          onChange={(e) => handleScheduleChange(day.dayIndex, 'isOpen', e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-10 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-green-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-500"></div>
-                      </label>
-                      <span className={`font-medium ${day.isOpen ? 'text-gray-900' : 'text-gray-400'}`}>
-                        {day.dayName}
-                      </span>
-                    </div>
-
-                    {day.isOpen ?  (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="time"
-                          value={day.start}
-                          onChange={(e) => handleScheduleChange(day.dayIndex, 'start', e.target.value)}
-                          className="px-3 py-2 rounded-lg border border-gray-200 text-sm focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none"
-                        />
-                        <span className="text-gray-400 font-medium">—</span>
-                        <input
-                          type="time"
-                          value={day.end}
-                          onChange={(e) => handleScheduleChange(day.dayIndex, 'end', e.target.value)}
-                          className="px-3 py-2 rounded-lg border border-gray-200 text-sm focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none"
-                        />
-                      </div>
-                    ) : (
-                      <span className="text-sm text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">Libur</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={handleSaveSchedule}
-                disabled={isSaving}
-                className="w-full py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 shadow-lg shadow-red-200"
-              >
-                {isSaving ? 'Menyimpan...' : 'Simpan Jadwal'}
-              </button>
             </div>
           )}
 
