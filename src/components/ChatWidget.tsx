@@ -5,7 +5,6 @@ import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import Image from 'next/image';
 import api from '@/lib/axios';
-// [FIX 1] Import User type to avoid 'any'
 import { User } from '@/features/auth/types';
 
 // --- ICONS ---
@@ -34,14 +33,13 @@ interface ChatRoom {
   updatedAt: string;
 }
 
-// [FIX 1] Use User type instead of any
 export default function ChatWidget({ user }: { user: User }) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeRoom, setActiveRoom] = useState<ChatRoom | null>(null);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [newMessage, setNewMessage] = useState('');
   
-  // [FIX 2] Use useRef for socket to avoid setState in useEffect causing cascading renders
+  // Gunakan useRef untuk Socket agar tidak re-init setiap render
   const socketRef = useRef<Socket | null>(null);
   
   const [isUnread, setIsUnread] = useState(false);
@@ -55,65 +53,73 @@ export default function ChatWidget({ user }: { user: User }) {
     const token = localStorage.getItem('posko_token');
     if (!token) return;
 
+    // Load daftar chat awal
     api.get('/chat').then(res => setRooms(res.data.data)).catch(console.error);
 
-    const newSocket = io(SOCKET_URL, { 
-      auth: { token },
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5
-    });
-
-    newSocket.on('connect', () => {
-      console.log('✅ Socket connected:', newSocket.id);
-    });
-
-    newSocket.on('connect_error', (error) => {
-      console.error('❌ Socket connection error:', error);
-    });
-
-    newSocket.on('receive_message', (data: { roomId: string, message: Message }) => {
-      setRooms(prev => {
-        const roomIndex = prev.findIndex(r => r._id === data.roomId);
-        if (roomIndex === -1) return prev; 
-
-        const updatedRoom = { 
-            ...prev[roomIndex], 
-            messages: [...prev[roomIndex].messages, data.message],
-            updatedAt: new Date().toISOString()
-        };
-        const newRooms = [...prev];
-        newRooms.splice(roomIndex, 1);
-        newRooms.unshift(updatedRoom);
-        return newRooms;
+    // Inisialisasi Socket hanya jika belum ada
+    if (!socketRef.current) {
+      const newSocket = io(SOCKET_URL, { 
+        auth: { token },
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5
       });
 
-      setActiveRoom(current => {
-        if (current && current._id === data.roomId) {
-          return { ...current, messages: [...current.messages, data.message] };
-        }
-        if (!current || current._id !== data.roomId) setIsUnread(true);
-        return current;
+      newSocket.on('connect', () => {
+        console.log('✅ ChatWidget connected:', newSocket.id);
       });
-    });
 
-    // [FIX 2] Store socket in ref instead of state
-    socketRef.current = newSocket;
+      newSocket.on('connect_error', (error) => {
+        console.error('❌ ChatWidget connection error:', error);
+      });
 
+      newSocket.on('receive_message', (data: { roomId: string, message: Message }) => {
+        setRooms(prev => {
+          const roomIndex = prev.findIndex(r => r._id === data.roomId);
+          if (roomIndex === -1) return prev; 
+
+          const updatedRoom = { 
+              ...prev[roomIndex], 
+              messages: [...prev[roomIndex].messages, data.message],
+              updatedAt: new Date().toISOString()
+          };
+          const newRooms = [...prev];
+          newRooms.splice(roomIndex, 1);
+          newRooms.unshift(updatedRoom);
+          return newRooms;
+        });
+
+        setActiveRoom(current => {
+          // Jika sedang membuka room yang menerima pesan
+          if (current && current._id === data.roomId) {
+            return { ...current, messages: [...current.messages, data.message] };
+          }
+          // Jika pesan masuk ke room lain (atau widget tertutup)
+          if (!current || current._id !== data.roomId) {
+             setIsUnread(true);
+          }
+          return current;
+        });
+      });
+
+      socketRef.current = newSocket;
+    }
+
+    // Cleanup saat unmount
     return () => { 
-      console.log('🔌 Disconnecting socket...');
-      newSocket.disconnect(); 
-      socketRef.current = null;
+      if (socketRef.current) {
+        console.log('🔌 ChatWidget disconnecting...');
+        socketRef.current.disconnect(); 
+        socketRef.current = null;
+      }
     };
   }, [SOCKET_URL]);
 
   useEffect(() => {
     if (isOpen && activeRoom) {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        // [FIX 3] Removed setIsUnread(false) from here to avoid cascading updates.
-        // It is now handled in the toggle handler.
     }
   }, [activeRoom?.messages, isOpen, activeRoom]);
 
@@ -148,7 +154,7 @@ export default function ChatWidget({ user }: { user: User }) {
   };
 
   return (
-    <div className="fixed bottom-0 right-4 z-50 flex flex-col items-end font-sans">
+    <div className="fixed bottom-24 right-4 lg:bottom-4 lg:right-4 z-50 flex flex-col items-end font-sans">
         <div 
             className={`bg-white border border-gray-300 rounded-t-lg shadow-2xl flex flex-col transition-all duration-300 ease-in-out overflow-hidden w-[320px] md:w-[360px] ${
                 isOpen ? 'h-[500px]' : 'h-[48px]'
@@ -156,9 +162,9 @@ export default function ChatWidget({ user }: { user: User }) {
         >
             <div 
                 onClick={() => {
-                    setIsOpen(!isOpen);
-                    // [FIX 3] Handle unread clearing here
-                    if (!isOpen) setIsUnread(false);
+                    const newState = !isOpen;
+                    setIsOpen(newState);
+                    if (newState) setIsUnread(false);
                 }}
                 className={`h-12 px-4 flex items-center justify-between cursor-pointer shrink-0 ${
                     isOpen ? 'bg-red-600 border-b border-red-700' : 'bg-white hover:bg-gray-50'

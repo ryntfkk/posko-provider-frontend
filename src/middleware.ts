@@ -63,29 +63,40 @@ export function middleware(request: NextRequest) {
   const token = getTokenFromCookies(request);
   const user = token ? decodeToken(token) : null;
 
+  // Cek apakah user punya role provider
+  // Kita cek array 'roles' untuk akses, tidak hanya 'activeRole'
+  // Ini mencegah user dengan activeRole='customer' tapi punya hak 'provider' tertolak
+  const hasProviderRole = 
+    user?.activeRole === 'provider' || 
+    user?.role === 'provider' || 
+    (user?.roles && user.roles.includes('provider'));
+
   // 1. Jika User belum login dan akses halaman non-public -> Lempar ke Login
   if (!user && !isPublicRoute(pathname)) {
     const loginUrl = new URL('/login', request.url);
+    // Tambahkan callbackUrl agar UX lebih baik
+    loginUrl.searchParams.set('callbackUrl', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // 2. Jika User sudah login tapi akses halaman Login/Register -> Lempar ke Dashboard
+  // 2. Jika User sudah login tapi akses halaman Login/Register
   if (user && isPublicRoute(pathname)) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    // [FIX] Cegah Redirect Loop: Hanya redirect ke Dashboard jika dia MEMANG Provider
+    if (hasProviderRole) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+    // Jika bukan provider (misal customer nyasar), biarkan dia di halaman Login/Register
+    // agar dia bisa logout atau login dengan akun lain.
+    return NextResponse.next();
   }
 
   // 3. Proteksi Halaman Provider
   if (isProviderRoute(pathname)) {
-    // Cek apakah user punya role provider
-    const hasProviderRole = 
-      user?.activeRole === 'provider' || 
-      user?.role === 'provider' || 
-      user?.roles?.includes('provider');
-
     if (!hasProviderRole) {
-      // Jika bukan provider (misal customer nyasar), logout atau redirect ke info
-      // Di sini kita redirect ke login untuk memaksa ganti akun/logout
+      // Jika bukan provider, lempar ke login
       const loginUrl = new URL('/login', request.url);
+      // Opsional: Tambahkan error param untuk memberi tahu user
+      // loginUrl.searchParams.set('error', 'access_denied'); 
       return NextResponse.redirect(loginUrl);
     }
   }

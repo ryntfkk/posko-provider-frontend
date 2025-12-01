@@ -1,3 +1,4 @@
+// src/app/(dashboard)/messages/page.tsx
 'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -26,7 +27,10 @@ export default function ProviderMessagesPage() {
   const [activeRoom, setActiveRoom] = useState<ChatRoom | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeOrders, setActiveOrders] = useState<Order[]>([]);
-  const [socket, setSocket] = useState<Socket | null>(null);
+  
+  // Gunakan ref untuk socket agar persisten antar render
+  const socketRef = useRef<Socket | null>(null);
+  
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -51,36 +55,57 @@ export default function ProviderMessagesPage() {
         );
         setActiveOrders(activeOnly);
 
-        const newSocket = io(SOCKET_URL, { auth: { token }, transports: ['websocket', 'polling'] });
-        newSocket.on('receive_message', (data: { roomId: string, message: Message }) => {
-          setRooms(prev => {
-            const roomIndex = prev.findIndex(r => r._id === data.roomId);
-            if (roomIndex === -1) return prev;
-            const updatedRoom = { 
-               ...prev[roomIndex], 
-               messages: [...prev[roomIndex].messages, data.message],
-               updatedAt: new Date().toISOString()
-            };
-            const newRooms = [...prev];
-            newRooms.splice(roomIndex, 1);
-            newRooms.unshift(updatedRoom);
-            return newRooms;
+        // Inisialisasi Socket
+        if (!socketRef.current) {
+          const newSocket = io(SOCKET_URL, { 
+            auth: { token }, 
+            transports: ['websocket', 'polling'],
+            reconnection: true,
           });
 
-          setActiveRoom(current => {
-            if (current && current._id === data.roomId) {
-              return { ...current, messages: [...current.messages, data.message] };
-            }
-            return current;
-          });
-        });
-        setSocket(newSocket);
+          newSocket.on('receive_message', (data: { roomId: string, message: Message }) => {
+            setRooms(prev => {
+              const roomIndex = prev.findIndex(r => r._id === data.roomId);
+              if (roomIndex === -1) return prev;
+              
+              const updatedRoom = { 
+                 ...prev[roomIndex], 
+                 messages: [...prev[roomIndex].messages, data.message],
+                 updatedAt: new Date().toISOString()
+              };
+              const newRooms = [...prev];
+              newRooms.splice(roomIndex, 1);
+              newRooms.unshift(updatedRoom);
+              return newRooms;
+            });
 
-      } catch (error) { console.error(error); } finally { setIsLoading(false); }
+            setActiveRoom(current => {
+              if (current && current._id === data.roomId) {
+                return { ...current, messages: [...current.messages, data.message] };
+              }
+              return current;
+            });
+          });
+
+          socketRef.current = newSocket;
+        }
+
+      } catch (error) { 
+        console.error(error); 
+      } finally { 
+        setIsLoading(false); 
+      }
     };
 
     initChat();
-    return () => { socket?.disconnect(); };
+
+    // Cleanup socket saat unmount
+    return () => { 
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
   }, [router]);
 
   useEffect(() => {
@@ -94,7 +119,9 @@ export default function ProviderMessagesPage() {
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
+    const socket = socketRef.current;
     if (!newMessage.trim() || !activeRoom || !socket) return;
+    
     socket.emit('send_message', { roomId: activeRoom._id, content: newMessage });
     setNewMessage('');
   };
@@ -103,21 +130,23 @@ export default function ProviderMessagesPage() {
     try {
         const res = await api.get(`/chat/${room._id}`);
         setActiveRoom(res.data.data);
-        socket?.emit('join_chat', room._id);
+        socketRef.current?.emit('join_chat', room._id);
     } catch (error) { console.error(error); }
   };
 
-  // Logic Order Snippet
+  // [PERBAIKAN LOGIKA] Mencari Order Terkait
   const relatedOrder = useMemo(() => {
     if (!activeRoom || !user || activeOrders.length === 0) return null;
     const opponent = getOpponent(activeRoom);
     if (!opponent) return null;
 
     return activeOrders.find(order => {
-        // Sebagai provider, lawan bicara adalah customer (userId di order)
+        // userId di order bisa berupa string ID atau object PopulatedUser
         const uId = order.userId;
-        const custId = (typeof uId === 'string' ? uId : (uId as PopulatedUser)._id);
-        return custId === opponent._id;
+        const custId = (typeof uId === 'object' && uId !== null) ? (uId as PopulatedUser)._id : String(uId);
+        
+        // Bandingkan ID sebagai string untuk keamanan
+        return String(custId) === String(opponent._id);
     });
   }, [activeRoom, activeOrders, user, getOpponent]);
 
@@ -182,7 +211,7 @@ export default function ProviderMessagesPage() {
                             <span className="text-xs text-green-600">Pelanggan</span>
                         </div>
                     </div>
-                    {/* Related Order Snippet */}
+                    {/* Related Order Snippet (Sekarang harusnya muncul dengan benar) */}
                     {relatedOrder && (
                         <div onClick={() => router.push(`/jobs/${relatedOrder._id}`)} className="mt-3 bg-blue-50 border border-blue-100 rounded-lg p-2 flex justify-between items-center cursor-pointer hover:bg-blue-100">
                             <div className="flex items-center gap-2">
