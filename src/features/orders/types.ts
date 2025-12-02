@@ -41,6 +41,15 @@ export interface Attachment {
   uploadedAt?: string;
 }
 
+// ============ [BARU] ADDITIONAL FEE (ADD-ON) ============
+export interface AdditionalFee {
+  _id: string;
+  description: string;
+  amount: number;
+  status: 'pending_approval' | 'approved_unpaid' | 'paid' | 'rejected';
+  paymentId?: string;
+}
+
 // ============ CREATE ORDER PAYLOAD (UPDATED) ============
 export interface CreateOrderPayload {
   orderType: 'direct' | 'basic';
@@ -117,6 +126,8 @@ export interface Order {
   providerId?: string | PopulatedProvider | null;
   items: PopulatedOrderItem[];
   totalAmount: number;
+  adminFee: number;
+  discountAmount: number;
   status: OrderStatus;
   orderType: 'direct' | 'basic';
   scheduledAt?: string;
@@ -134,7 +145,19 @@ export interface Order {
   propertyDetails?: PropertyDetails;
   scheduledTimeSlot?: ScheduledTimeSlot;
   attachments?: Attachment[];
+  completionEvidence?: Attachment[]; // [BARU] Bukti selesai
+  additionalFees?: AdditionalFee[];  // [BARU] Biaya tambahan
   
+  // [BARU] Earnings (Hanya ada jika order completed)
+  earnings?: {
+    totalAmount: number;
+    adminFee: number;
+    serviceRevenue: number;
+    platformCommissionPercent: number;
+    platformCommissionAmount: number;
+    earningsAmount: number;
+  };
+
   createdAt: string;
   updatedAt: string;
 }

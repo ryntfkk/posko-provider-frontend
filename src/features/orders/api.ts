@@ -32,3 +32,32 @@ export const fetchIncomingOrders = async () => {
   const response = await api.get<{ data: Order[] }>('/orders/incoming');
   return response.data;
 };
+
+// [BARU] Upload Bukti Penyelesaian Pekerjaan
+export const uploadCompletionEvidence = async (orderId: string, file: File, description?: string) => {
+  const formData = new FormData();
+  formData.append('image', file); // Field name harus 'image' sesuai config Multer di backend
+  if (description) {
+    formData.append('description', description);
+  }
+
+  const response = await api.post<{ message: string; data: Order }>(
+    `/orders/${orderId}/completion-evidence`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+  return response.data;
+};
+
+// [BARU] Request Biaya Tambahan
+export const requestAdditionalFee = async (orderId: string, description: string, amount: number) => {
+  const response = await api.post<{ message: string; data: Order }>(
+    `/orders/${orderId}/additional-fee`,
+    { description, amount }
+  );
+  return response.data;
+};
