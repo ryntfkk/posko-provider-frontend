@@ -10,6 +10,7 @@ import { fetchMyProviderProfile, updateAvailability } from '@/features/providers
 import { fetchProfile } from '@/features/auth/api';
 import { User } from '@/features/auth/types';
 
+
 // --- ICONS ---
 const WalletIcon = () => (
   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -64,10 +65,22 @@ export default function ProviderDashboardPage() {
   const [bookedDates, setBookedDates] = useState<string[]>([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
+  // [NEW] Helper function untuk refresh user profile
+  const refreshUserProfile = async () => {
+    try {
+      const profileRes = await fetchProfile();
+      if (profileRes.data.profile) {
+        setUser(profileRes.data.profile);
+      }
+    } catch (error) {
+      console.error('Gagal refresh profile:', error);
+    }
+  };
+
   useEffect(() => {
     const initData = async () => {
       try {
-        // 1. Fetch User Profile
+        // 1.Fetch User Profile
         const profileResAuth = await fetchProfile();
         setUser(profileResAuth.data.profile);
 
@@ -78,7 +91,7 @@ export default function ProviderDashboardPage() {
         const incomingRes = await fetchIncomingOrders();
         setIncomingOrders(Array.isArray(incomingRes.data) ? incomingRes.data : []);
 
-        // 3. Fetch Provider Details (Calendar etc)
+        // 3.Fetch Provider Details (Calendar etc)
         const providerRes = await fetchMyProviderProfile();
         if (providerRes.data) {
           const blocked = (providerRes.data.blockedDates || []).map((d: string) => d.split('T')[0]);
@@ -99,12 +112,13 @@ export default function ProviderDashboardPage() {
   const activeJobs = useMemo(() => myJobs.filter(o => ['accepted', 'on_the_way', 'working', 'waiting_approval'].includes(o.status)), [myJobs]);
   const historyJobs = useMemo(() => myJobs.filter(o => ['completed', 'cancelled', 'failed'].includes(o.status)), [myJobs]);
   const completedCount = useMemo(() => myJobs.filter(o => o.status === 'completed').length, [myJobs]);
-  const totalEarnings = useMemo(() => myJobs.filter(o => o.status === 'completed').reduce((sum, o) => sum + o.totalAmount, 0), [myJobs]);
+  // [FIXED] Gunakan user.balance dari User model (yang sudah terupdate dari backend)
+  const totalEarnings = useMemo(() => user?.balance || 0, [user?.balance]);
   const rating = 5.0; // Placeholder, idealnya dari API
 
   // --- HANDLERS ORDER ---
   const handleAccept = async (orderId: string) => {
-    if (!confirm('Ambil pesanan ini?')) return;
+    if (! confirm('Ambil pesanan ini?')) return;
     setProcessingId(orderId);
     try {
       await acceptOrder(orderId);
@@ -127,6 +141,29 @@ export default function ProviderDashboardPage() {
       setProcessingId(null);
     }
   };
+
+  // [NEW] Handler untuk refresh data saat order selesai (dipanggil setiap beberapa detik)
+  const setupAutoRefresh = () => {
+    // Auto-refresh user profile setiap 5 detik untuk mendeteksi order yang selesai
+    const interval = setInterval(async () => {
+      try {
+        const jobsRes = await fetchMyOrders('provider');
+        setMyJobs(Array.isArray(jobsRes.data) ? jobsRes.data : []);
+        
+        // Refresh user balance
+        await refreshUserProfile();
+      } catch (error) {
+        console.error('Auto-refresh error:', error);
+      }
+    }, 5000); // Refresh setiap 5 detik
+
+    return () => clearInterval(interval);
+  };
+
+  // [NEW] Setup auto-refresh ketika component mount
+  useEffect(() => {
+    return setupAutoRefresh();
+  }, []);
 
   // --- HANDLERS KALENDER ---
   const getDaysInMonth = (date: Date) => {
@@ -201,7 +238,7 @@ export default function ProviderDashboardPage() {
       return (
         <div
           key={day}
-          onClick={() => !isPast && handleDateClick(day)}
+          onClick={() => ! isPast && handleDateClick(day)}
           className={`aspect-square rounded-lg border flex flex-col items-center justify-center cursor-pointer transition-all relative ${cellClass}`}
         >
           <span className="text-xs font-bold">{day}</span>
@@ -222,7 +259,7 @@ export default function ProviderDashboardPage() {
     );
   }
 
-  if (!user) return null;
+  if (! user) return null;
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans pb-24 lg:pb-10">
@@ -243,7 +280,7 @@ export default function ProviderDashboardPage() {
             <Link href="/settings">
               <div className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 overflow-hidden">
                 <Image
-                  src={user.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.fullName}`}
+                  src={user.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg? seed=${user.fullName}`}
                   width={36}
                   height={36}
                   className="w-full h-full object-cover"
@@ -262,7 +299,7 @@ export default function ProviderDashboardPage() {
             <div className="relative z-10 flex flex-col h-full justify-between">
               <div className="flex justify-between items-start">
                 <div>
-                  <h2 className="text-2xl lg:text-3xl font-bold mb-1">Halo, {user.fullName.split(' ')[0]}! 👋</h2>
+                  <h2 className="text-2xl lg:text-3xl font-bold mb-1">Halo, {user.fullName.split(' ')[0]}!  👋</h2>
                   <p className="text-red-100 text-sm lg:text-base opacity-90">Kelola pesanan dan ketersediaan tanggalmu.</p>
                 </div>
                 <button
@@ -294,16 +331,18 @@ export default function ProviderDashboardPage() {
             <div>
               <div className="flex items-center gap-2 mb-4 text-gray-500">
                 <div className="p-2 bg-gray-100 rounded-lg"><WalletIcon /></div>
-                <span className="text-xs font-bold uppercase tracking-wide">Total Pendapatan</span>
+                <span className="text-xs font-bold uppercase tracking-wide">Total Saldo</span>
               </div>
               <p className="text-3xl font-black text-gray-900 mb-1">
                 {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(totalEarnings)}
               </p>
-              <p className="text-xs text-gray-400">Akumulasi dari pesanan selesai</p>
+              <p className="text-xs text-gray-400">Saldo aktual di akun Anda</p>
             </div>
-            <button className="w-full mt-6 py-3 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors">
-              Riwayat Transaksi
-            </button>
+            <Link href="/earnings" className="block">
+              <button className="w-full mt-6 py-3 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors">
+                Riwayat Transaksi
+              </button>
+            </Link>
           </div>
         </section>
 
@@ -318,7 +357,7 @@ export default function ProviderDashboardPage() {
             </button>
             <button
               onClick={() => setActiveTab('active')}
-              className={`pb-3 text-sm font-bold whitespace-nowrap border-b-2 transition-colors ${activeTab === 'active' ? 'text-red-600 border-red-600' : 'text-gray-400 border-transparent hover:text-gray-600'}`}
+              className={`pb-3 text-sm font-bold whitespace-nowrap border-b-2 transition-colors ${activeTab === 'active' ?  'text-red-600 border-red-600' : 'text-gray-400 border-transparent hover:text-gray-600'}`}
             >
               Berlangsung <span className="ml-1 bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full text-[10px]">{activeJobs.length}</span>
             </button>
@@ -352,7 +391,7 @@ export default function ProviderDashboardPage() {
                         <CalendarIcon />
                         <span className="text-sm font-bold text-gray-900">
                           {order.scheduledAt
-                            ? new Date(order.scheduledAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                            ?  new Date(order.scheduledAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
                             : 'Segera (ASAP)'}
                         </span>
                       </div>
@@ -388,7 +427,7 @@ export default function ProviderDashboardPage() {
 
                     <button
                       onClick={() => handleAccept(order._id)}
-                      disabled={!!processingId}
+                      disabled={!! processingId}
                       className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-all shadow-lg shadow-red-100"
                     >
                       {processingId === order._id ? 'Memproses...' : 'Ambil Pesanan'}
