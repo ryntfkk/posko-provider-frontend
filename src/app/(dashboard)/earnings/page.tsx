@@ -3,32 +3,32 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { fetchEarningsHistory, EarningsRecord } from '@/features/earnings/api';
 import { fetchProfile } from '@/features/auth/api';
 import { User } from '@/features/auth/types';
 
-const CalendarIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+// --- ICONS ---
+const WalletIcon = () => (
+  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-6 3h6m6-9V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2v-4" />
+  </svg>
+);
+
+const TrendUpIcon = () => (
+  <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
   </svg>
 );
 
 const DownloadIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 16v-4m0 0V8m0 4l4-4m-4 4l-4-4M4.5 12.75l15 15M19.5 2.75l-15 15" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
   </svg>
 );
 
-const CheckIcon = () => (
-  <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-  </svg>
-);
-
-const ClockIcon = () => (
-  <svg className="w-5 h-5 text-orange-600" fill="currentColor" viewBox="0 0 20 20">
-    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+const ChevronDownIcon = () => (
+  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
   </svg>
 );
 
@@ -37,18 +37,18 @@ export default function EarningsPage() {
   const [earnings, setEarnings] = useState<EarningsRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'pending'>('all');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest'>('newest');
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const profileRes = await fetchProfile();
+        const [profileRes, earningsRes] = await Promise.all([
+          fetchProfile(),
+          fetchEarningsHistory()
+        ]);
         setUser(profileRes.data.profile);
-
-        const earningsRes = await fetchEarningsHistory();
         setEarnings(Array.isArray(earningsRes.data) ? earningsRes.data : []);
       } catch (error) {
-        console.error('Gagal memuat earnings history:', error);
+        console.error('Gagal memuat data:', error);
       } finally {
         setIsLoading(false);
       }
@@ -56,243 +56,168 @@ export default function EarningsPage() {
     loadData();
   }, []);
 
-  // Filter earnings
-  const filteredEarnings = earnings.filter(e => {
-    if (filterStatus === 'all') return true;
-    return e.status === filterStatus;
-  });
+  // Filter & Sort (Default: Terbaru)
+  const filteredEarnings = earnings
+    .filter(e => filterStatus === 'all' ? true : e.status === filterStatus)
+    .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
 
-  // Sort earnings
-  const sortedEarnings = [...filteredEarnings].sort((a, b) => {
-    if (sortBy === 'newest') {
-      return new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime();
-    } else if (sortBy === 'oldest') {
-      return new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime();
-    } else {
-      return b.earningsAmount - a.earningsAmount;
-    }
-  });
-
-  // Calculate summary
-  const totalEarnings = earnings
+  // Hitung Summary
+  const totalNetEarnings = earnings
     .filter(e => e.status === 'completed')
     .reduce((sum, e) => sum + e.earningsAmount, 0);
 
-  const totalCommission = earnings
-    .filter(e => e.status === 'completed')
-    .reduce((sum, e) => sum + e.platformCommissionAmount, 0);
-
   const completedCount = earnings.filter(e => e.status === 'completed').length;
-  const avgEarnings = completedCount > 0 ? totalEarnings / completedCount : 0;
 
   const handleExportCSV = () => {
-    const headers = ['Date', 'Order ID', 'Total Amount', 'Admin Fee', 'Service Revenue', 'Commission (12%)', 'Net Earnings', 'Status'];
-    const rows = sortedEarnings.map(e => [
+    const headers = ['Tanggal', 'Order ID', 'Total Tagihan', 'Pendapatan Bersih', 'Status'];
+    const rows = filteredEarnings.map(e => [
       new Date(e.completedAt).toLocaleDateString('id-ID'),
-      e.orderId.slice(-8),
+      e.orderId,
       e.totalAmount,
-      e.adminFee,
-      e.totalAmount - e.adminFee,
-      e.platformCommissionAmount,
       e.earningsAmount,
       e.status
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n');
-
+    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `earnings_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `laporan_keuangan_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
   };
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-10 w-10 border-4 border-gray-200 border-t-red-600"></div>
+        <div className="animate-pulse flex flex-col items-center">
+          <div className="h-4 w-32 bg-gray-200 rounded mb-2"></div>
+          <div className="h-4 w-24 bg-gray-200 rounded"></div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 font-sans pb-10">
       {/* HEADER */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 lg:px-8 py-4 flex items-center justify-between">
-          <Link href="/dashboard" className="text-gray-600 hover:text-gray-900 font-bold">
-            ← Dashboard
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-20 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard" className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-gray-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
           </Link>
-          <h1 className="text-2xl font-bold text-gray-900">Riwayat Penghasilan</h1>
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors"
-          >
-            <DownloadIcon /> Export CSV
-          </button>
+          <h1 className="text-base lg:text-lg font-bold text-gray-900">Keuangan</h1>
         </div>
+        <button
+          onClick={handleExportCSV}
+          className="text-gray-500 hover:text-gray-900 p-2 rounded-full hover:bg-gray-100"
+          title="Download Laporan"
+        >
+          <DownloadIcon />
+        </button>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
-        {/* SUMMARY CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-                <CheckIcon />
-              </div>
-              <span className="text-xs font-bold text-gray-500 uppercase">Total Penghasilan</span>
+      <main className="max-w-2xl mx-auto p-4 space-y-5">
+        
+        {/* WALLET CARD (Modern Dark Theme) */}
+        <div className="bg-gray-900 rounded-2xl p-5 text-white shadow-xl shadow-gray-200 relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-32 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16"></div>
+          
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-2 opacity-80">
+              <div className="p-1.5 bg-white/20 rounded-lg"><WalletIcon /></div>
+              <span className="text-xs font-medium uppercase tracking-wide">Saldo Dompet</span>
             </div>
-            <p className="text-2xl font-black text-gray-900">
-              Rp {new Intl.NumberFormat('id-ID').format(totalEarnings)}
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Dari {completedCount} order</p>
-          </div>
+            <div className="flex items-baseline gap-1 mb-6">
+              <span className="text-sm font-medium opacity-70">Rp</span>
+              <h2 className="text-3xl lg:text-4xl font-black tracking-tight">
+                {new Intl.NumberFormat('id-ID').format(user?.balance || 0)}
+              </h2>
+            </div>
 
-          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                <CalendarIcon />
+            <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-4">
+              <div>
+                <p className="text-[10px] text-gray-400 mb-0.5 uppercase">Total Pendapatan</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="font-bold text-sm">Rp {new Intl.NumberFormat('id-ID', { notation: "compact", maximumFractionDigits: 1 }).format(totalNetEarnings)}</p>
+                  <TrendUpIcon />
+                </div>
               </div>
-              <span className="text-xs font-bold text-gray-500 uppercase">Rata-rata / Order</span>
-            </div>
-            <p className="text-2xl font-black text-gray-900">
-              Rp {new Intl.NumberFormat('id-ID').format(Math.round(avgEarnings))}
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Per pesanan selesai</p>
-          </div>
-
-          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-                <ClockIcon />
+              <div>
+                <p className="text-[10px] text-gray-400 mb-0.5 uppercase">Order Selesai</p>
+                <p className="font-bold text-sm">{completedCount} <span className="text-xs font-normal opacity-70">Pesanan</span></p>
               </div>
-              <span className="text-xs font-bold text-gray-500 uppercase">Total Komisi</span>
             </div>
-            <p className="text-2xl font-black text-gray-900">
-              Rp {new Intl.NumberFormat('id-ID').format(totalCommission)}
-            </p>
-            <p className="text-xs text-gray-400 mt-1">12% dari service revenue</p>
-          </div>
-
-          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                <span className="text-lg font-bold text-purple-600">💰</span>
-              </div>
-              <span className="text-xs font-bold text-gray-500 uppercase">Saldo Anda</span>
-            </div>
-            <p className="text-2xl font-black text-gray-900">
-              Rp {new Intl.NumberFormat('id-ID').format(user?.balance || 0)}
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Siap diambil</p>
           </div>
         </div>
 
-        {/* FILTERS */}
-        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex flex-wrap gap-4 items-center">
-          <div>
-            <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Filter Status</label>
+        {/* FILTERS & LABEL */}
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-gray-900">Riwayat Transaksi</h3>
+          <div className="relative">
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value as any)}
-              className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-red-600"
+              className="appearance-none bg-white border border-gray-200 text-xs font-medium px-3 py-1.5 pr-7 rounded-lg focus:outline-none focus:border-gray-400 text-gray-600"
             >
-              <option value="all">Semua</option>
+              <option value="all">Semua Status</option>
               <option value="completed">Selesai</option>
               <option value="pending">Pending</option>
             </select>
-          </div>
-
-          <div>
-            <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Urutkan</label>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-red-600"
-            >
-              <option value="newest">Terbaru</option>
-              <option value="oldest">Terlama</option>
-              <option value="highest">Terbesar</option>
-            </select>
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+              <ChevronDownIcon />
+            </div>
           </div>
         </div>
 
-        {/* EARNINGS LIST */}
+        {/* TRANSACTION LIST */}
         <div className="space-y-3">
-          {sortedEarnings.length === 0 ?  (
-            <div className="py-12 text-center bg-white rounded-2xl border border-dashed border-gray-200">
-              <p className="text-gray-400 font-medium">Belum ada riwayat penghasilan</p>
+          {filteredEarnings.length === 0 ? (
+            <div className="py-12 text-center bg-white rounded-xl border border-dashed border-gray-200">
+              <p className="text-sm text-gray-400">Belum ada data transaksi.</p>
             </div>
           ) : (
-            sortedEarnings.map((record) => (
-              <div key={record._id} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-all">
-                <div className="flex justify-between items-start gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                        record.status === 'completed' ? 'bg-green-100 text-green-700' :
-                        record.status === 'pending' ? 'bg-orange-100 text-orange-700' :
-                        'bg-blue-100 text-blue-700'
-                      }`}>
-                        {record.status === 'completed' ? '✓ Selesai' :
-                         record.status === 'pending' ? '⏳ Pending' :
-                         '💳 Dibayarkan'}
-                      </span>
-                      <span className="text-sm font-bold text-gray-900">Order #{record.orderId.slice(-8)}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 flex items-center gap-1">
-                      <CalendarIcon />
-                      {new Date(record.completedAt).toLocaleDateString('id-ID', {
-                        weekday: 'long',
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric'
-                      })}
+            filteredEarnings.map((record) => (
+              <div key={record._id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <p className="text-[10px] text-gray-400 font-medium mb-0.5">
+                      {new Date(record.completedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </p>
+                    <p className="text-sm font-bold text-gray-900">Pekerjaan Selesai</p>
+                    <p className="text-xs text-gray-500">Order ID: #{record.orderId.slice(-6)}</p>
                   </div>
-
                   <div className="text-right">
-                    <div className="mb-2">
-                      <p className="text-xs text-gray-500 font-medium">Penghasilan Bersih</p>
-                      <p className="text-lg font-black text-green-600">
-                        Rp {new Intl.NumberFormat('id-ID').format(record.earningsAmount)}
-                      </p>
-                    </div>
-                    <details className="inline-block">
-                      <summary className="cursor-pointer text-xs font-bold text-gray-400 hover:text-gray-600">
-                        Detail
-                      </summary>
-                      <div className="absolute right-0 mt-2 bg-white rounded-lg border border-gray-200 shadow-lg p-4 w-72 text-left">
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Total Order</span>
-                            <span className="font-bold text-gray-900">Rp {new Intl.NumberFormat('id-ID').format(record.totalAmount)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Biaya Admin</span>
-                            <span className="font-bold text-gray-900">-Rp {new Intl.NumberFormat('id-ID').format(record.adminFee)}</span>
-                          </div>
-                          <div className="border-t border-gray-200 pt-2 flex justify-between">
-                            <span className="text-gray-600">Service Revenue</span>
-                            <span className="font-bold text-gray-900">Rp {new Intl.NumberFormat('id-ID').format(record.totalAmount - record.adminFee)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Komisi Platform ({record.platformCommissionPercent}%)</span>
-                            <span className="font-bold text-red-600">-Rp {new Intl.NumberFormat('id-ID').format(record.platformCommissionAmount)}</span>
-                          </div>
-                          <div className="border-t border-gray-200 pt-2 flex justify-between">
-                            <span className="font-bold text-gray-900">Penghasilan Bersih</span>
-                            <span className="text-lg font-black text-green-600">Rp {new Intl.NumberFormat('id-ID').format(record.earningsAmount)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </details>
+                    <p className="text-sm font-bold text-green-600">
+                      +Rp {new Intl.NumberFormat('id-ID').format(record.earningsAmount)}
+                    </p>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                      record.status === 'completed' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'
+                    }`}>
+                      {record.status === 'completed' ? 'Sukses' : record.status}
+                    </span>
                   </div>
                 </div>
+
+                {/* Simple Accordion for Details */}
+                <details className="group">
+                  <summary className="cursor-pointer text-[10px] font-bold text-gray-400 hover:text-gray-600 flex items-center gap-1 mt-2 select-none">
+                    Rincian Dana <ChevronDownIcon />
+                  </summary>
+                  <div className="mt-2 pt-2 border-t border-gray-50 space-y-1.5 animate-in slide-in-from-top-1 duration-200">
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>Total Tagihan Customer</span>
+                      <span>Rp {new Intl.NumberFormat('id-ID').format(record.totalAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>Komisi Platform</span>
+                      <span>-Rp {new Intl.NumberFormat('id-ID').format(record.platformCommissionAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-bold text-gray-900 pt-1">
+                      <span>Diterima Bersih</span>
+                      <span>Rp {new Intl.NumberFormat('id-ID').format(record.earningsAmount)}</span>
+                    </div>
+                  </div>
+                </details>
               </div>
             ))
           )}
