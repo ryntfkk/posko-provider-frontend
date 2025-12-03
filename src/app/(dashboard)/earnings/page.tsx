@@ -69,11 +69,12 @@ export default function EarningsPage() {
   const completedCount = earnings.filter(e => e.status === 'completed').length;
 
   const handleExportCSV = () => {
-    const headers = ['Tanggal', 'Order ID', 'Total Tagihan', 'Pendapatan Bersih', 'Status'];
+    const headers = ['Tanggal', 'Order ID', 'Total Tagihan', 'Biaya Tambahan', 'Pendapatan Bersih', 'Status'];
     const rows = filteredEarnings.map(e => [
       new Date(e.completedAt).toLocaleDateString('id-ID'),
       e.orderId,
       e.totalAmount,
+      e.additionalFeeAmount || 0,
       e.earningsAmount,
       e.status
     ]);
@@ -208,11 +209,27 @@ export default function EarningsPage() {
                       <span>Total Tagihan Customer</span>
                       <span>Rp {new Intl.NumberFormat('id-ID').format(record.totalAmount)}</span>
                     </div>
+                    
+                    {/* [BARU] Tampilkan breakdown biaya tambahan jika ada */}
+                    {record.additionalFeeAmount && record.additionalFeeAmount > 0 ? (
+                       <div className="flex justify-between text-xs text-gray-400 pl-2 border-l-2 border-gray-100 my-1">
+                          <span>↳ Biaya Tambahan</span>
+                          <span>Rp {new Intl.NumberFormat('id-ID').format(record.additionalFeeAmount)}</span>
+                       </div>
+                    ) : null}
+
+                    {/* [BARU] Tampilkan Biaya Admin */}
                     <div className="flex justify-between text-xs text-gray-500">
-                      <span>Komisi Platform</span>
+                      <span>Biaya Admin Aplikasi</span>
+                      <span>Rp {new Intl.NumberFormat('id-ID').format(record.adminFee)}</span>
+                    </div>
+
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>Komisi Platform ({record.platformCommissionPercent}%)</span>
                       <span>-Rp {new Intl.NumberFormat('id-ID').format(record.platformCommissionAmount)}</span>
                     </div>
-                    <div className="flex justify-between text-xs font-bold text-gray-900 pt-1">
+                    
+                    <div className="flex justify-between text-xs font-bold text-gray-900 pt-1 border-t border-dashed border-gray-100 mt-1">
                       <span>Diterima Bersih</span>
                       <span>Rp {new Intl.NumberFormat('id-ID').format(record.earningsAmount)}</span>
                     </div>

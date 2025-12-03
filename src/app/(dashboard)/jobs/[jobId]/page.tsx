@@ -502,6 +502,17 @@ export default function JobDetailPage() {
                 <span className="text-green-700">Service Revenue</span>
                 <span className="font-bold text-green-900">Rp {new Intl.NumberFormat('id-ID').format(earningsBreakdown.serviceRevenue)}</span>
               </div>
+              
+              {/* [NEW] Tampilkan Breakdown Biaya Tambahan Jika Ada */}
+              {earningsBreakdown.additionalFeeAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-green-700">Biaya Tambahan</span>
+                  <span className="font-bold text-green-900">
+                    +Rp {new Intl.NumberFormat('id-ID').format(earningsBreakdown.additionalFeeAmount)}
+                  </span>
+                </div>
+              )}
+
               <div className="flex justify-between">
                 <span className="text-green-700">Komisi Platform ({earningsBreakdown.platformCommissionPercent}%)</span>
                 <span className="font-bold text-red-600">-Rp {new Intl.NumberFormat('id-ID').format(earningsBreakdown.platformCommissionAmount)}</span>

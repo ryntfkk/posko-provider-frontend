@@ -4,6 +4,7 @@ export interface EarningsRecord {
   _id: string;
   orderId: string;
   totalAmount: number;
+  additionalFeeAmount?: number; // [BARU] Field untuk biaya tambahan
   adminFee: number;
   platformCommissionPercent: number;
   platformCommissionAmount: number;
