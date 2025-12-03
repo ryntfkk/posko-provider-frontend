@@ -20,7 +20,7 @@ const PUBLIC_ROUTES = [
   '/register',
 ];
 
-// Routes khusus Mitra
+// Routes khusus Mitra (Sudah Terverifikasi)
 const PROVIDER_ROUTES = ['/dashboard', '/jobs', '/messages', '/settings'];
 
 function isPublicRoute(pathname: string): boolean {
@@ -63,9 +63,7 @@ export function middleware(request: NextRequest) {
   const token = getTokenFromCookies(request);
   const user = token ? decodeToken(token) : null;
 
-  // Cek apakah user punya role provider
-  // Kita cek array 'roles' untuk akses, tidak hanya 'activeRole'
-  // Ini mencegah user dengan activeRole='customer' tapi punya hak 'provider' tertolak
+  // Cek peran user
   const hasProviderRole = 
     user?.activeRole === 'provider' || 
     user?.role === 'provider' || 
@@ -74,31 +72,37 @@ export function middleware(request: NextRequest) {
   // 1. Jika User belum login dan akses halaman non-public -> Lempar ke Login
   if (!user && !isPublicRoute(pathname)) {
     const loginUrl = new URL('/login', request.url);
-    // Tambahkan callbackUrl agar UX lebih baik
     loginUrl.searchParams.set('callbackUrl', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   // 2. Jika User sudah login tapi akses halaman Login/Register
   if (user && isPublicRoute(pathname)) {
-    // [FIX] Cegah Redirect Loop: Hanya redirect ke Dashboard jika dia MEMANG Provider
     if (hasProviderRole) {
         return NextResponse.redirect(new URL('/dashboard', request.url));
     }
-    // Jika bukan provider (misal customer nyasar), biarkan dia di halaman Login/Register
-    // agar dia bisa logout atau login dengan akun lain.
+    // Jika customer, biarkan di login/register atau redirect ke onboarding jika perlu
+    // Disini kita biarkan agar logic di login page yang menghandle redirect
     return NextResponse.next();
   }
 
-  // 3. Proteksi Halaman Provider
+  // 3. Proteksi Halaman Provider (Dashboard, Jobs, dll)
   if (isProviderRoute(pathname)) {
     if (!hasProviderRole) {
-      // Jika bukan provider, lempar ke login
-      const loginUrl = new URL('/login', request.url);
-      // Opsional: Tambahkan error param untuk memberi tahu user
-      // loginUrl.searchParams.set('error', 'access_denied'); 
-      return NextResponse.redirect(loginUrl);
+      // Jika bukan provider, tapi customer yang mencoba akses dashboard
+      // Arahkan ke halaman onboarding mitra
+      const onboardingUrl = new URL('/become-partner', request.url);
+      return NextResponse.redirect(onboardingUrl);
     }
+  }
+
+  // 4. [NEW] Proteksi Halaman Onboarding (/become-partner)
+  // Jika user sudah jadi Provider, tidak perlu ke halaman onboarding lagi
+  if (pathname === '/become-partner') {
+    if (hasProviderRole) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+    // Customer allowed
   }
 
   return NextResponse.next();

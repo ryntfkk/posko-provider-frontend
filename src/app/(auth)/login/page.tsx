@@ -76,7 +76,7 @@ export default function LoginPage() {
       
       const decoded = jwtDecode<DecodedToken>(token);
       
-      // Validasi Role yang lebih fleksibel (Mengecek activeRole, role tunggal, atau array roles)
+      // Validasi Role
       const isProvider = 
         decoded.activeRole === 'provider' || 
         decoded.role === 'provider' || 
@@ -87,18 +87,26 @@ export default function LoginPage() {
         decoded.role === 'admin' || 
         (decoded.roles && decoded.roles.includes('admin'));
 
-      // Jika bukan Provider dan bukan Admin, tolak akses
-      if (!isProvider && !isAdmin) {
-        setErrorMsg('Akun ini bukan akun Mitra. Silakan gunakan aplikasi Customer.');
+      // Check jika user hanya customer biasa
+      const isCustomer = 
+        !isProvider && !isAdmin && 
+        (decoded.activeRole === 'customer' || decoded.role === 'customer' || (decoded.roles && decoded.roles.includes('customer')));
+
+      if (isProvider || isAdmin) {
+        // Jika sudah Mitra/Admin, masuk ke Dashboard
+        router.push('/dashboard');
+        router.refresh();
+      } else if (isCustomer) {
+        // [FIX] Jika Customer, arahkan ke halaman Onboarding Mitra
+        router.push('/become-partner');
+        router.refresh();
+      } else {
+        // Jika role tidak dikenali sama sekali
+        setErrorMsg('Akun tidak memiliki akses yang sesuai.');
         setIsLoading(false);
-        // Hapus token jika gagal validasi role agar tidak tersimpan
         localStorage.removeItem('posko_token');
-        return;
       }
       
-      // Redirect ke Dashboard
-      router.push('/dashboard');
-      router.refresh();
     } catch (error: any) {
       const message = error.response?.data?.message || 'Gagal login, periksa email atau password.';
       setErrorMsg(message);
@@ -192,15 +200,15 @@ export default function LoginPage() {
                   <span>Memproses...</span>
                 </>
               ) : (
-                'Masuk Dashboard'
+                'Masuk'
               )}
             </button>
           </form>
 
           <div className="mt-10 text-center">
             <p className="text-sm text-gray-500">
-              Belum terdaftar sebagai mitra? <br/>
-              <span className="font-bold text-gray-800">Hubungi Admin untuk pendaftaran.</span>
+              Belum terdaftar? <br/>
+              <span className="font-bold text-gray-800">Gunakan akun Customer untuk mendaftar sebagai Mitra.</span>
             </p>
           </div>
         </div>
