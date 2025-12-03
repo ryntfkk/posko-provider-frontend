@@ -79,6 +79,22 @@ export interface Provider {
 
   // Jarak dari user (dihitung oleh backend)
   distance?: number;
+
+  // [BARU] Status Verifikasi & Data Lengkap
+  verificationStatus: 'pending' | 'verified' | 'rejected' | 'suspended';
+  documents?: {
+    ktpUrl: string;
+    selfieKtpUrl: string;
+    skckUrl: string;
+    certificateUrl?: string;
+  };
+  details?: {
+    experienceYears: number;
+    description: string;
+    serviceCategory: string;
+    vehicleType?: string;
+  };
+  rejectionReason?: string;
 }
 
 export interface ProviderListResponse {
