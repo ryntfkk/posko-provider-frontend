@@ -56,6 +56,7 @@ export interface ScheduleItem {
   end: string;
 }
 
+// [BARU] Interface Data Provider Lengkap
 export interface Provider {
   _id: string;
   userId: ProviderUser;
@@ -80,7 +81,7 @@ export interface Provider {
   // Jarak dari user (dihitung oleh backend)
   distance?: number;
 
-  // [BARU] Status Verifikasi & Data Lengkap
+  // Status Verifikasi & Data Lengkap
   verificationStatus: 'pending' | 'verified' | 'rejected' | 'suspended';
   documents?: {
     ktpUrl: string;
@@ -88,12 +89,37 @@ export interface Provider {
     skckUrl: string;
     certificateUrl?: string;
   };
+  
+  // [BARU] Data Personal Lengkap
+  personalInfo?: {
+    nik: string;
+    dateOfBirth: string;
+    gender: 'Laki-laki' | 'Perempuan';
+  };
+  domicileAddress?: string;
+
+  // [BARU] Data Bank
+  bankAccount?: {
+    bankName: string;
+    accountNumber: string;
+    accountHolderName: string;
+  };
+
+  // [BARU] Kontak Darurat
+  emergencyContact?: {
+    name: string;
+    relationship: string;
+    phoneNumber: string;
+  };
+
+  // Detail Jasa
   details?: {
     experienceYears: number;
     description: string;
     serviceCategory: string;
     vehicleType?: string;
   };
+  
   rejectionReason?: string;
 }
 

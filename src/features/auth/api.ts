@@ -101,6 +101,16 @@ export const updateProfile = async (data: any) => {
     return response.data;
 };
 
+// [BARU] Fungsi Registrasi Mitra dengan Upload Dokumen
+export const registerPartnerWithDocs = async (formData: FormData) => {
+  const response = await api.post('/auth/register-partner', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
 export const isAuthenticated = (): boolean => {
   return !!safeGetToken();
 };
