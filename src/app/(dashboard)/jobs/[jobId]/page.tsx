@@ -1,11 +1,12 @@
 // src/app/(dashboard)/jobs/[jobId]/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
+import { io, Socket } from 'socket.io-client';
 import { fetchOrderById, updateOrderStatus, uploadCompletionEvidence, requestAdditionalFee } from '@/features/orders/api';
 import { fetchProfile } from '@/features/auth/api';
 import { Order } from '@/features/orders/types';
@@ -65,6 +66,8 @@ const PlusIcon = () => (
   </svg>
 );
 
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
+
 export default function JobDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -83,46 +86,72 @@ export default function JobDetailPage() {
   const [feeAmount, setFeeAmount] = useState('');
   const [isSubmittingFee, setIsSubmittingFee] = useState(false);
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const orderRes = await fetchOrderById(jobId);
-        setOrder(orderRes.data);
+  const socketRef = useRef<Socket | null>(null);
 
+  // [NEW] Fungsi Fetch Data Manual (dipakai saat inisialisasi atau socket event)
+  const refreshOrderData = async () => {
+    try {
+      const orderRes = await fetchOrderById(jobId);
+      setOrder(orderRes.data);
+
+      if (orderRes.data.status === 'completed' && orderRes.data.earnings) {
+        setEarningsBreakdown(orderRes.data.earnings);
+        // Refresh profile untuk update saldo
         const profileRes = await fetchProfile();
         setUser(profileRes.data.profile);
-      } catch (error) {
-        console.error('Gagal memuat detail job:', error);
+      }
+    } catch (error) {
+      console.error('Gagal memuat detail job:', error);
+    }
+  };
+
+  useEffect(() => {
+    const initData = async () => {
+      try {
+        await refreshOrderData();
+        const profileRes = await fetchProfile();
+        setUser(profileRes.data.profile);
       } finally {
         setIsLoading(false);
       }
     };
-    loadData();
-  }, [jobId]);
+    initData();
 
-  useEffect(() => {
-    if (! order || order.status === 'completed') return;
+    // [NEW] Initialize Socket Connection untuk halaman ini
+    const token = localStorage.getItem('posko_token');
+    if (token) {
+        if (!socketRef.current) {
+            const newSocket = io(SOCKET_URL, { 
+                auth: { token },
+                transports: ['websocket', 'polling'],
+                reconnection: true
+            });
 
-    const pollInterval = setInterval(async () => {
-      try {
-        const updatedOrder = await fetchOrderById(jobId);
-        setOrder(updatedOrder.data);
+            newSocket.on('connect', () => {
+                console.log('✅ JobDetail Socket Connected');
+            });
 
-        if (updatedOrder.data.status === 'completed' && order.status !== 'completed') {
-          const profileRes = await fetchProfile();
-          setUser(profileRes.data.profile);
-          
-          if (updatedOrder.data.earnings) {
-            setEarningsBreakdown(updatedOrder.data.earnings);
-          }
+            // Listen: Update Status Order Spesifik
+            newSocket.on('order_status_update', (data) => {
+                if (data.orderId === jobId) {
+                    console.log('🔄 Order Update Received:', data);
+                    refreshOrderData(); // Refresh data full dari server
+                    alert(`Status Pesanan Berubah: ${data.message || data.status}`);
+                }
+            });
+
+            socketRef.current = newSocket;
         }
-      } catch (error) {
-        console.error('Polling error:', error);
-      }
-    }, 2000);
+    }
 
-    return () => clearInterval(pollInterval);
-  }, [order, jobId]);
+    // Cleanup socket & remove polling
+    return () => {
+        if (socketRef.current) {
+            socketRef.current.disconnect();
+            socketRef.current = null;
+        }
+    };
+  }, [jobId]);
 
   const handleStatusUpdate = async (newStatus: string) => {
     if (newStatus === 'waiting_approval') {
@@ -132,7 +161,7 @@ export default function JobDetailPage() {
         return;
       }
 
-      // [BARU] Validasi Biaya Tambahan Pending/Unpaid
+      // Validasi Biaya Tambahan Pending/Unpaid
       const hasUnpaidFees = order?.additionalFees?.some(
         fee => fee.status === 'pending_approval' || fee.status === 'approved_unpaid'
       );
@@ -156,7 +185,8 @@ export default function JobDetailPage() {
         setUser(profileRes.data.profile);
         alert('Pesanan selesai! Earnings Anda sudah masuk ke saldo.');
       } else {
-        alert(`Status berhasil diubah menjadi ${newStatus}`);
+        // Alert dihapus jika ingin smooth, tapi boleh dipertahankan untuk feedback explicit
+        // alert(`Status berhasil diubah menjadi ${newStatus}`);
       }
     } catch (error: any) {
       alert(error.response?.data?.message || `Gagal mengubah status ke ${newStatus}`);

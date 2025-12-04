@@ -124,8 +124,9 @@ export default function ProviderSettingsPage() {
   };
 
   const handleAddService = async () => {
-    if (!selectedNewService || newServicePrice <= 0) {
-      alert('Pilih layanan dan masukkan harga yang valid');
+    // [VALIDASI] Harga minimal Rp 1.000
+    if (!selectedNewService || newServicePrice < 1000) {
+      alert('Pilih layanan dan masukkan harga yang valid (Min. Rp 1.000)');
       return;
     }
 
@@ -193,6 +194,14 @@ export default function ProviderSettingsPage() {
   };
 
   const handleSavePrice = async (serviceIndex: number) => {
+    const price = services[serviceIndex].price;
+    // [VALIDASI] Harga minimal
+    if (price < 1000) {
+        alert('Harga minimal adalah Rp 1.000');
+        // Reset ke harga lama (reload data) atau biarkan user memperbaiki
+        return; 
+    }
+
     try {
       await api.put('/providers/services', {
         services: services.map(s => ({
@@ -500,6 +509,7 @@ export default function ProviderSettingsPage() {
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">Rp</span>
                         <input
                           type="number"
+                          min="1000" // [VALIDASI] HTML5 Constraint
                           value={service.price}
                           onChange={(e) => handleUpdatePrice(idx, parseInt(e.target.value) || 0)}
                           onBlur={() => handleSavePrice(idx)}
@@ -601,6 +611,7 @@ export default function ProviderSettingsPage() {
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">Rp</span>
                       <input
                         type="number"
+                        min="1000" // [VALIDASI]
                         value={newServicePrice}
                         onChange={(e) => setNewServicePrice(parseInt(e.target.value) || 0)}
                         className="w-full pl-12 pr-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none font-bold"
@@ -611,7 +622,7 @@ export default function ProviderSettingsPage() {
 
                   <button
                     onClick={handleAddService}
-                    disabled={isSaving || !selectedNewService || newServicePrice <= 0}
+                    disabled={isSaving || !selectedNewService || newServicePrice < 1000}
                     className="w-full py-3.5 bg-red-600 text-white font-bold rounded-xl shadow-lg shadow-red-200 hover:bg-red-700 transition-colors disabled:opacity-50 mt-4"
                   >
                     {isSaving ? 'Menambahkan...' : 'Simpan Layanan'}
