@@ -1,20 +1,20 @@
 // src/app/(provider)/dashboard/page.tsx
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { io, Socket } from 'socket.io-client';
 import { fetchIncomingOrders, acceptOrder, fetchMyOrders } from '@/features/orders/api';
 import { Order } from '@/features/orders/types';
 import { fetchMyProviderProfile, updateAvailability } from '@/features/providers/api';
 import { fetchProfile } from '@/features/auth/api';
 import { User } from '@/features/auth/types';
 
-
 // --- ICONS ---
 const WalletIcon = () => (
   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-6 3h6m6-9V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2v-4" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-6 3h6m6-9V6a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2h14a2 2 0 002-2v-4" />
   </svg>
 );
 
@@ -49,6 +49,8 @@ const ChevronRight = () => (
   </svg>
 );
 
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
+
 export default function ProviderDashboardPage() {
   // --- STATE USER & DASHBOARD ---
   const [user, setUser] = useState<User | null>(null);
@@ -65,6 +67,8 @@ export default function ProviderDashboardPage() {
   const [bookedDates, setBookedDates] = useState<string[]>([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
+  const socketRef = useRef<Socket | null>(null);
+
   // [NEW] Helper function untuk refresh user profile
   const refreshUserProfile = async () => {
     try {
@@ -77,6 +81,19 @@ export default function ProviderDashboardPage() {
     }
   };
 
+  const refreshOrders = async () => {
+    try {
+        const [jobsRes, incomingRes] = await Promise.all([
+            fetchMyOrders('provider'),
+            fetchIncomingOrders()
+        ]);
+        setMyJobs(Array.isArray(jobsRes.data) ? jobsRes.data : []);
+        setIncomingOrders(Array.isArray(incomingRes.data) ? incomingRes.data : []);
+    } catch (e) {
+        console.error("Failed refresh orders", e);
+    }
+  };
+
   useEffect(() => {
     const initData = async () => {
       try {
@@ -84,12 +101,8 @@ export default function ProviderDashboardPage() {
         const profileResAuth = await fetchProfile();
         setUser(profileResAuth.data.profile);
 
-        // 2. Fetch Orders
-        const jobsRes = await fetchMyOrders('provider');
-        setMyJobs(Array.isArray(jobsRes.data) ? jobsRes.data : []);
-
-        const incomingRes = await fetchIncomingOrders();
-        setIncomingOrders(Array.isArray(incomingRes.data) ? incomingRes.data : []);
+        // 2. Fetch Orders Initial
+        await refreshOrders();
 
         // 3.Fetch Provider Details (Calendar etc)
         const providerRes = await fetchMyProviderProfile();
@@ -106,6 +119,49 @@ export default function ProviderDashboardPage() {
       }
     };
     initData();
+
+    // 4. [NEW] Initialize Socket Connection
+    const token = localStorage.getItem('posko_token');
+    if (token) {
+        if (!socketRef.current) {
+            const newSocket = io(SOCKET_URL, { 
+                auth: { token },
+                transports: ['websocket', 'polling'],
+                reconnection: true
+            });
+
+            newSocket.on('connect', () => {
+                console.log('✅ Dashboard Socket Connected');
+            });
+
+            // Listen: Order Baru Masuk (Direct Order / Basic Order broadcast)
+            newSocket.on('order_new', (data) => {
+                console.log('🔔 New Order Received:', data);
+                // Tambahkan ke incoming orders jika belum ada
+                setIncomingOrders(prev => {
+                    if (prev.find(o => o._id === data.order._id)) return prev;
+                    return [data.order, ...prev];
+                });
+                alert(`🔔 Pesanan Baru: ${data.message || 'Cek tab Order Masuk'}`);
+            });
+
+            // Listen: Update Status Order (Accept, Paid, Cancel, etc)
+            newSocket.on('order_status_update', (data) => {
+                console.log('🔄 Order Update:', data);
+                refreshOrders(); // Refresh data penuh untuk sinkronisasi
+                refreshUserProfile(); // Update saldo jika ada earnings
+            });
+
+            socketRef.current = newSocket;
+        }
+    }
+
+    return () => {
+        if (socketRef.current) {
+            socketRef.current.disconnect();
+            socketRef.current = null;
+        }
+    };
   }, []);
 
   // --- STATISTIK ---
@@ -122,13 +178,11 @@ export default function ProviderDashboardPage() {
     setProcessingId(orderId);
     try {
       await acceptOrder(orderId);
-      alert('Pesanan diterima! Cek tab Berlangsung.');
-
-      const incRes = await fetchIncomingOrders();
-      setIncomingOrders(incRes.data);
-      const jobsRes = await fetchMyOrders('provider');
-      setMyJobs(jobsRes.data);
-
+      // alert('Pesanan diterima! Cek tab Berlangsung.'); 
+      // Alert dihapus, tunggu update socket atau refresh manual
+      
+      // Manual refresh immediately for UX response
+      await refreshOrders();
       const profileRes = await fetchMyProviderProfile();
       if (profileRes.data) {
         setBookedDates((profileRes.data.bookedDates || []).map((d: string) => d.split('T')[0]));
@@ -141,29 +195,6 @@ export default function ProviderDashboardPage() {
       setProcessingId(null);
     }
   };
-
-  // [NEW] Handler untuk refresh data saat order selesai (dipanggil setiap beberapa detik)
-  const setupAutoRefresh = () => {
-    // Auto-refresh user profile setiap 5 detik untuk mendeteksi order yang selesai
-    const interval = setInterval(async () => {
-      try {
-        const jobsRes = await fetchMyOrders('provider');
-        setMyJobs(Array.isArray(jobsRes.data) ? jobsRes.data : []);
-        
-        // Refresh user balance
-        await refreshUserProfile();
-      } catch (error) {
-        console.error('Auto-refresh error:', error);
-      }
-    }, 5000); // Refresh setiap 5 detik
-
-    return () => clearInterval(interval);
-  };
-
-  // [NEW] Setup auto-refresh ketika component mount
-  useEffect(() => {
-    return setupAutoRefresh();
-  }, []);
 
   // --- HANDLERS KALENDER ---
   const getDaysInMonth = (date: Date) => {
