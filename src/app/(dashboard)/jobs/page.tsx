@@ -1,4 +1,4 @@
-// src/app/(provider)/jobs/page.tsx
+// src/app/(dashboard)/jobs/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -6,15 +6,28 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { fetchMyOrders } from '@/features/orders/api';
 import { Order } from '@/features/orders/types';
-import { User } from '@/features/auth/types'; // Import tipe User
+import { User } from '@/features/auth/types';
+import api from '@/lib/axios'; // Import API untuk fetch settings
 
 export default function ProviderJobsPage() {
   const [jobs, setJobs] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [commissionPercent, setCommissionPercent] = useState<number>(12); // Default fallback
 
   useEffect(() => {
-    const loadJobs = async () => {
+    const loadData = async () => {
       try {
+        // 1. Fetch Global Settings untuk Komisi
+        try {
+          const settingsRes = await api.get('/settings');
+          if (settingsRes.data?.data?.platformCommissionPercent) {
+            setCommissionPercent(settingsRes.data.data.platformCommissionPercent);
+          }
+        } catch (err) {
+          console.error('Gagal memuat setting komisi, menggunakan default', err);
+        }
+
+        // 2. Fetch Orders
         const res = await fetchMyOrders('provider');
         setJobs(Array.isArray(res.data) ? res.data : []);
       } catch (error) {
@@ -23,8 +36,40 @@ export default function ProviderJobsPage() {
         setIsLoading(false);
       }
     };
-    loadJobs();
+    loadData();
   }, []);
+
+  // Helper untuk menghitung Estimasi Pendapatan Bersih
+  const calculateNetEarnings = (job: Order) => {
+    // Jika order sudah selesai dan ada record earnings, gunakan itu (Data Real)
+    if (job.status === 'completed' && job.earnings) {
+      return job.earnings.earningsAmount;
+    }
+
+    // Jika belum selesai, hitung estimasi (Forecast)
+    
+    // 1. Hitung total biaya tambahan (Add-ons) yang sudah dibayar/disetujui
+    const additionalFeesTotal = job.additionalFees 
+      ? job.additionalFees
+          .filter(f => ['paid', 'approved_unpaid'].includes(f.status))
+          .reduce((sum, f) => sum + f.amount, 0)
+      : 0;
+
+    // 2. Hitung Gross Revenue (Pendapatan Kotor sebelum potongan platform)
+    // Note: job.totalAmount = (Harga Item + Admin Fee - Diskon)
+    // Jadi, Gross Revenue = (job.totalAmount + AdditionalFees) - Admin Fee
+    // Hasilnya setara dengan: (Harga Item + AdditionalFees - Diskon)
+    const grossRevenue = (job.totalAmount + additionalFeesTotal) - job.adminFee;
+    
+    // Proteksi agar tidak negatif
+    const safeGross = Math.max(0, grossRevenue);
+    
+    // 3. Hitung Potongan Platform
+    const commissionAmount = Math.round((safeGross * commissionPercent) / 100);
+    
+    // 4. Pendapatan Bersih
+    return safeGross - commissionAmount;
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -70,14 +115,9 @@ export default function ProviderJobsPage() {
         ) : (
           jobs.map((job) => {
             const customer = (typeof job.userId === 'object' ? job.userId : {}) as User;
-            // Fix #3: Gunakan shippingAddress dari Order sebagai sumber utama alamat
             const locationCity = job.shippingAddress?.city || customer.address?.city || 'Alamat tidak tersedia';
+            const netEarnings = calculateNetEarnings(job);
             
-            // Fix #1: Menghitung Estimasi Pendapatan (Total Tagihan - Admin Fee)
-            // job.totalAmount biasanya sudah termasuk adminFee di backend (Gross), jadi kita kurangi adminFee
-            // untuk menampilkan angka yang lebih mendekati pendapatan Provider.
-            const estimatedRevenue = (job.totalAmount || 0) - (job.adminFee || 0);
-
             return (
               <Link href={`/jobs/${job._id}`} key={job._id} className="block bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-red-200 hover:shadow-md transition-all relative overflow-hidden">
                 <div className="flex justify-between items-start mb-3">
@@ -109,8 +149,8 @@ export default function ProviderJobsPage() {
                     <span className="text-sm font-medium text-gray-800 line-clamp-1">{job.items[0]?.name} {job.items.length > 1 && `+${job.items.length - 1}`}</span>
                   </div>
                   <div className="flex flex-col text-right">
-                    <span className="text-[10px] text-gray-400 uppercase tracking-wide">Estimasi Pendapatan</span>
-                    <span className="text-sm font-black text-green-600">Rp {new Intl.NumberFormat('id-ID').format(estimatedRevenue)}</span>
+                    <span className="text-[10px] text-gray-400 uppercase tracking-wide">Estimasi Bersih</span>
+                    <span className="text-sm font-black text-green-600">Rp {new Intl.NumberFormat('id-ID').format(netEarnings)}</span>
                   </div>
                 </div>
               </Link>

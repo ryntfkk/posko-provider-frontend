@@ -34,6 +34,7 @@ export default function ProviderMessagesPage() {
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Ambil ID user dengan aman
   const myId = user?._id;
 
   useEffect(() => {
@@ -112,12 +113,16 @@ export default function ProviderMessagesPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeRoom?.messages]);
 
-  // Fix: Logika getOpponent yang lebih aman terhadap tipe data dan kondisi null
+  // [PERBAIKAN] Logika getOpponent yang lebih aman
   const getOpponent = useCallback((room: ChatRoom | null) => {
-    if (!room || !myId) return null;
-    
-    // Cari participant yang ID-nya BUKAN myId (gunakan String() untuk safety comparison)
-    return room.participants.find(p => String(p._id) !== String(myId)) || room.participants[0];
+    if (!room) return null;
+    // Jika user belum load, kita tidak bisa memfilter dengan benar
+    // Tapi jika kita provider, biasanya opponent adalah participant yang BUKAN kita.
+    if (!myId) {
+        // Fallback sementara: return participant pertama
+        return room.participants[0];
+    }
+    return room.participants.find(p => p._id !== myId) || room.participants[0];
   }, [myId]);
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -178,17 +183,18 @@ export default function ProviderMessagesPage() {
                         <button key={room._id} onClick={() => openRoom(room)} className={`w-full flex items-center gap-3 p-4 hover:bg-gray-50 transition-all text-left border-b border-gray-50 ${isActive ? 'bg-red-50' : ''}`}>
                             <div className="relative w-12 h-12 shrink-0">
                                 <div className="w-full h-full rounded-full bg-gray-200 overflow-hidden border border-gray-100">
-                                    <Image src={opponent?.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${opponent?.fullName || 'User'}`} alt="User" width={48} height={48} className="object-cover" />
+                                    <Image src={opponent?.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${opponent?.fullName}`} alt="User" width={48} height={48} className="object-cover" />
                                 </div>
                             </div>
                             <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-baseline mb-1">
-                                    <h4 className={`text-sm font-bold truncate ${isActive ? 'text-red-700' : 'text-gray-900'}`}>{opponent?.fullName || 'User'}</h4>
+                                    {/* Gunakan optional chaining untuk safety */}
+                                    <h4 className={`text-sm font-bold truncate ${isActive ? 'text-red-700' : 'text-gray-900'}`}>{opponent?.fullName || 'Pelanggan'}</h4>
                                     <span className="text-[10px] text-gray-400">{lastMsg ? new Date(lastMsg.sentAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit', hour12: false}) : ''}</span>
                                 </div>
                                 <p className={`text-xs truncate ${isActive ? 'text-red-600/70' : 'text-gray-500'}`}>
                                     {lastMsg ? (
-                                        String(senderId) === String(myId) ? `Anda: ${lastMsg.content}` : lastMsg.content
+                                        senderId === myId ? `Anda: ${lastMsg.content}` : lastMsg.content
                                     ) : <span className="italic opacity-60">Mulai obrolan...</span>}
                                 </p>
                             </div>
@@ -229,7 +235,7 @@ export default function ProviderMessagesPage() {
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-24 md:pb-4">
                     {activeRoom.messages.map((msg, idx) => {
                         const senderId = typeof msg.sender === 'object' ? msg.sender._id : msg.sender;
-                        const isMe = String(senderId) === String(myId);
+                        const isMe = senderId === myId;
                         return (
                             <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-[80%] md:max-w-[60%] px-4 py-2 rounded-2xl text-sm shadow-sm break-words ${
