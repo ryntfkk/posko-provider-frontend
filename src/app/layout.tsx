@@ -1,37 +1,29 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google"; // Gunakan import ini
-import "./globals.css";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
+// src/app/layout.tsx
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+import { Toaster } from 'react-hot-toast';
+import { SocketProvider } from '@/context/SocketContext'; // [BARU]
 
-// Konfigurasi Font dari Google (Otomatis Download)
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "Posko - Jasa Terdekat",
-  description: "Aplikasi penyedia jasa profesional terdekat",
+  title: 'Posko Provider - Mitra Terpercaya',
+  description: 'Aplikasi khusus mitra Posko untuk mengelola pesanan jasa.',
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="id">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50 text-gray-900`}
-        suppressHydrationWarning={true}
-      >
-        <LanguageSwitcher />
-        {children}
+      <body className={inter.className}>
+        <SocketProvider> 
+          {children}
+          <Toaster position="top-center" />
+        </SocketProvider>
       </body>
     </html>
   );

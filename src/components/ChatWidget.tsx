@@ -2,10 +2,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
 import Image from 'next/image';
 import api from '@/lib/axios';
 import { User } from '@/features/auth/types';
+import { useSocket } from '@/hooks/useSocket';
 
 // --- ICONS ---
 const CloseIcon = () => <svg className="w-5 h-5 text-white hover:text-gray-200 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>;
@@ -39,46 +39,31 @@ export default function ChatWidget({ user }: { user: User }) {
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [newMessage, setNewMessage] = useState('');
   
-  // Gunakan useRef untuk Socket agar tidak re-init setiap render
-  const socketRef = useRef<Socket | null>(null);
+  // [PERUBAHAN] Gunakan socket dari global hook
+  const { socket, isConnected } = useSocket();
   
   const [isUnread, setIsUnread] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
-
   const myId = user?._id || user?.userId;
 
+  // 1. Load Rooms Awal
   useEffect(() => {
     const token = localStorage.getItem('posko_token');
     if (!token) return;
 
-    // Load daftar chat awal
     api.get('/chat').then(res => setRooms(res.data.data)).catch(console.error);
+  }, []);
 
-    // Inisialisasi Socket hanya jika belum ada
-    if (!socketRef.current) {
-      const newSocket = io(SOCKET_URL, { 
-        auth: { token },
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionAttempts: 5
-      });
+  // 2. Setup Socket Listener Global
+  useEffect(() => {
+    if (!socket) return;
 
-      newSocket.on('connect', () => {
-        console.log('✅ ChatWidget connected:', newSocket.id);
-      });
-
-      newSocket.on('connect_error', (error) => {
-        console.error('❌ ChatWidget connection error:', error);
-      });
-
-      newSocket.on('receive_message', (data: { roomId: string, message: Message }) => {
+    const handleReceiveMessage = (data: { roomId: string, message: Message }) => {
+        // Update List Rooms (Pindahkan room ke paling atas)
         setRooms(prev => {
           const roomIndex = prev.findIndex(r => r._id === data.roomId);
-          if (roomIndex === -1) return prev; 
+          if (roomIndex === -1) return prev; // Jika room belum ada di list (kasus chat baru), idealnya fetch ulang
 
           const updatedRoom = { 
               ...prev[roomIndex], 
@@ -91,32 +76,28 @@ export default function ChatWidget({ user }: { user: User }) {
           return newRooms;
         });
 
+        // Update Active Room jika sedang dibuka
         setActiveRoom(current => {
-          // Jika sedang membuka room yang menerima pesan
           if (current && current._id === data.roomId) {
             return { ...current, messages: [...current.messages, data.message] };
           }
-          // Jika pesan masuk ke room lain (atau widget tertutup)
+          // Jika chat tertutup atau room beda, tandai unread
           if (!current || current._id !== data.roomId) {
              setIsUnread(true);
           }
           return current;
         });
-      });
-
-      socketRef.current = newSocket;
-    }
-
-    // Cleanup saat unmount
-    return () => { 
-      if (socketRef.current) {
-        console.log('🔌 ChatWidget disconnecting...');
-        socketRef.current.disconnect(); 
-        socketRef.current = null;
-      }
     };
-  }, [SOCKET_URL]);
 
+    socket.on('receive_message', handleReceiveMessage);
+
+    // Cleanup listener khusus komponen ini
+    return () => {
+      socket.off('receive_message', handleReceiveMessage);
+    };
+  }, [socket]);
+
+  // 3. Scroll ke bawah saat ada pesan baru di active room
   useEffect(() => {
     if (isOpen && activeRoom) {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -125,7 +106,6 @@ export default function ChatWidget({ user }: { user: User }) {
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    const socket = socketRef.current;
     if (!newMessage.trim() || !activeRoom || !socket) return;
 
     socket.emit('send_message', {
@@ -139,7 +119,11 @@ export default function ChatWidget({ user }: { user: User }) {
     try {
         const res = await api.get(`/chat/${room._id}`);
         setActiveRoom(res.data.data);
-        socketRef.current?.emit('join_chat', room._id);
+        
+        // [PERUBAHAN] Gunakan socket global untuk join room
+        if (socket && isConnected) {
+            socket.emit('join_chat', room._id);
+        }
     } catch (error) {
         console.error(error);
     }
@@ -191,7 +175,9 @@ export default function ChatWidget({ user }: { user: User }) {
                                 <span className="font-bold text-sm leading-tight truncate max-w-[140px]">
                                     {getOpponent(activeRoom)?.fullName}
                                 </span>
-                                <span className="text-[10px] text-red-100 opacity-90">Active now</span>
+                                <span className="text-[10px] text-red-100 opacity-90">
+                                    {isConnected ? 'Active now' : 'Reconnecting...'}
+                                </span>
                             </div>
                         </>
                     ) : (
@@ -298,7 +284,7 @@ export default function ChatWidget({ user }: { user: User }) {
                         />
                         <button 
                             type="submit" 
-                            disabled={!newMessage.trim()} 
+                            disabled={!newMessage.trim() || !isConnected} 
                             className="w-9 h-9 bg-red-600 text-white rounded-full flex items-center justify-center hover:bg-red-700 shadow-md transition-all disabled:bg-gray-200 disabled:shadow-none active:scale-95"
                         >
                             <SendIcon />

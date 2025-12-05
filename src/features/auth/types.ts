@@ -14,6 +14,7 @@ export interface GeoLocation {
   type: 'Point';
   coordinates: number[];
 }
+
 // Interface untuk Jadwal (disalin struktur minimalnya agar User type mengenalinya)
 interface UserScheduleDay {
   dayIndex: number;
@@ -37,6 +38,8 @@ export interface User {
   profilePictureUrl?: string;
   balance?: number; 
   schedule?: UserScheduleDay[];
+  // [BARU] Status Verifikasi Mitra
+  providerStatus?: 'pending' | 'verified' | 'rejected' | 'suspended';
 }
 
 export interface Tokens {

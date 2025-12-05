@@ -1,7 +1,7 @@
 // src/app/(dashboard)/jobs/[jobId]/page.tsx
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -11,8 +11,9 @@ import { fetchOrderById, updateOrderStatus, uploadCompletionEvidence, requestAdd
 import { fetchProfile } from '@/features/auth/api';
 import { Order } from '@/features/orders/types';
 import { User } from '@/features/auth/types';
+import api from '@/lib/axios';
 
-// Dynamic Import Map
+// Dynamic Import Map untuk performa
 const JobMap = dynamic(() => import('@/components/JobMap'), {
   ssr: false,
   loading: () => (
@@ -22,9 +23,10 @@ const JobMap = dynamic(() => import('@/components/JobMap'), {
   ),
 });
 
+// --- ICONS ---
 const CalendarIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2z" />
   </svg>
 );
 
@@ -66,6 +68,18 @@ const PlusIcon = () => (
   </svg>
 );
 
+const ReceiptIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 4h6m-6 4h6M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+  </svg>
+);
+
+const WalletIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-6 3h6m6-9V6a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2h14a2 2 0 002-2v-4" />
+  </svg>
+);
+
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
 
 export default function JobDetailPage() {
@@ -75,6 +89,7 @@ export default function JobDetailPage() {
 
   const [order, setOrder] = useState<Order | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [platformFeePercent, setPlatformFeePercent] = useState<number>(12); // Default fallback
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -88,7 +103,7 @@ export default function JobDetailPage() {
 
   const socketRef = useRef<Socket | null>(null);
 
-  // [NEW] Fungsi Fetch Data Manual (dipakai saat inisialisasi atau socket event)
+  // Fungsi Fetch Data Manual (dipakai saat inisialisasi atau socket event)
   const refreshOrderData = async () => {
     try {
       const orderRes = await fetchOrderById(jobId);
@@ -111,13 +126,21 @@ export default function JobDetailPage() {
         await refreshOrderData();
         const profileRes = await fetchProfile();
         setUser(profileRes.data.profile);
+        
+        // Fetch Global Config untuk Estimasi Komisi
+        const settingsRes = await api.get('/settings');
+        if (settingsRes.data?.data?.platformCommissionPercent) {
+          setPlatformFeePercent(settingsRes.data.data.platformCommissionPercent);
+        }
+      } catch (err) {
+        console.error("Error init data:", err);
       } finally {
         setIsLoading(false);
       }
     };
     initData();
 
-    // [NEW] Initialize Socket Connection untuk halaman ini
+    // Initialize Socket Connection
     const token = localStorage.getItem('posko_token');
     if (token) {
         if (!socketRef.current) {
@@ -136,7 +159,6 @@ export default function JobDetailPage() {
                 if (data.orderId === jobId) {
                     console.log('🔄 Order Update Received:', data);
                     refreshOrderData(); // Refresh data full dari server
-                    alert(`Status Pesanan Berubah: ${data.message || data.status}`);
                 }
             });
 
@@ -144,7 +166,6 @@ export default function JobDetailPage() {
         }
     }
 
-    // Cleanup socket & remove polling
     return () => {
         if (socketRef.current) {
             socketRef.current.disconnect();
@@ -153,15 +174,60 @@ export default function JobDetailPage() {
     };
   }, [jobId]);
 
+  // --- PERHITUNGAN BIAYA & PENGHASILAN (LOGIKA DIPERBAIKI) ---
+  const financials = useMemo(() => {
+    if (!order) return null;
+
+    // 1. Biaya Jasa Utama (Base Items)
+    const baseServiceTotal = order.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+    // 2. Biaya Tambahan (Approved/Paid Only untuk Total Tagihan)
+    const approvedFees = order.additionalFees?.filter(
+      fee => fee.status === 'paid' || fee.status === 'approved_unpaid'
+    ) || [];
+    const additionalFeesTotal = approvedFees.reduce((acc, fee) => acc + fee.amount, 0);
+
+    // 3. Subtotal Layanan (Jasa + Tambahan) -> INI YANG ANDA MINTA
+    const serviceSubtotal = baseServiceTotal + additionalFeesTotal;
+
+    // 4. Perhitungan Tagihan ke Customer
+    // Total Bayar = (Jasa + Tambahan + Admin) - Diskon
+    const customerGrandTotal = serviceSubtotal + order.adminFee - order.discountAmount;
+
+    // 5. Estimasi Penghasilan (Jika belum completed)
+    // Rumus: (Jasa + Tambahan - Diskon) - Komisi Platform
+    // Note: Admin Fee tidak masuk pendapatan mitra.
+    // Jika platform menanggung diskon, logikanya mungkin beda, tapi di backend saat ini:
+    // Revenue = (TotalTagihan - AdminFee) = (Jasa + Tambahan - Diskon)
+    
+    // Potensi Revenue (Sebelum potongan platform)
+    const grossRevenue = serviceSubtotal - order.discountAmount;
+    
+    // Estimasi Potongan Platform
+    const estimatedCommission = Math.round((grossRevenue * platformFeePercent) / 100);
+    
+    // Estimasi Bersih
+    const estimatedNetEarnings = grossRevenue - estimatedCommission;
+
+    return {
+      baseServiceTotal,
+      additionalFeesTotal,
+      serviceSubtotal, // GABUNGAN JASA + TAMBAHAN
+      customerGrandTotal,
+      grossRevenue,
+      estimatedCommission,
+      estimatedNetEarnings,
+      platformFeePercent
+    };
+  }, [order, platformFeePercent]);
+
   const handleStatusUpdate = async (newStatus: string) => {
     if (newStatus === 'waiting_approval') {
-      // Validasi Bukti Pekerjaan
       if (!order?.completionEvidence || order.completionEvidence.length === 0) {
         alert('Mohon upload bukti pekerjaan (foto) terlebih dahulu sebelum menyelesaikan pekerjaan.');
         return;
       }
 
-      // Validasi Biaya Tambahan Pending/Unpaid
       const hasUnpaidFees = order?.additionalFees?.some(
         fee => fee.status === 'pending_approval' || fee.status === 'approved_unpaid'
       );
@@ -184,9 +250,6 @@ export default function JobDetailPage() {
         const profileRes = await fetchProfile();
         setUser(profileRes.data.profile);
         alert('Pesanan selesai! Earnings Anda sudah masuk ke saldo.');
-      } else {
-        // Alert dihapus jika ingin smooth, tapi boleh dipertahankan untuk feedback explicit
-        // alert(`Status berhasil diubah menjadi ${newStatus}`);
       }
     } catch (error: any) {
       alert(error.response?.data?.message || `Gagal mengubah status ke ${newStatus}`);
@@ -198,8 +261,6 @@ export default function JobDetailPage() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      
-      // Validasi ukuran (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         alert('Ukuran file maksimal 5MB');
         return;
@@ -215,7 +276,6 @@ export default function JobDetailPage() {
         alert(error.response?.data?.message || 'Gagal mengupload foto');
       } finally {
         setIsUploading(false);
-        // Reset input value agar bisa upload file yang sama jika perlu
         e.target.value = '';
       }
     }
@@ -248,7 +308,7 @@ export default function JobDetailPage() {
     );
   }
 
-  if (!order) {
+  if (!order || !financials) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -259,33 +319,30 @@ export default function JobDetailPage() {
     );
   }
 
-  const isProvider = user && order.providerId;
   const isCompleted = order.status === 'completed';
   const isWaitingApproval = order.status === 'waiting_approval';
   const isWorking = order.status === 'working';
   const isOnTheWay = order.status === 'on_the_way';
   const isAccepted = order.status === 'accepted';
 
-  // Base URL untuk gambar
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
-  const SERVER_URL = API_URL.replace('/api', '');
+  const SERVER_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api').replace('/api', '');
 
   return (
-    <div className="min-h-screen bg-gray-50 relative">
+    <div className="min-h-screen bg-gray-50 relative font-sans">
       {/* HEADER */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-20">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/dashboard" className="text-gray-600 hover:text-gray-900 font-bold">
-            ← Kembali
+          <Link href="/dashboard" className="text-gray-600 hover:text-gray-900 font-bold flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            Kembali
           </Link>
           <div>
-            <span className={`px-4 py-2 rounded-full text-xs font-bold uppercase ${
-              isCompleted ? 'bg-green-100 text-green-700' :
-              isWaitingApproval ? 'bg-blue-100 text-blue-700' :
-              isWorking ?  'bg-purple-100 text-purple-700' :
-              isOnTheWay ? 'bg-orange-100 text-orange-700' :
-              isAccepted ? 'bg-yellow-100 text-yellow-700' :
-              'bg-gray-100 text-gray-700'
+            <span className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide border ${
+              isCompleted ? 'bg-green-50 text-green-700 border-green-200' :
+              isWaitingApproval ? 'bg-blue-50 text-blue-700 border-blue-200' :
+              isWorking ? 'bg-purple-50 text-purple-700 border-purple-200' :
+              isOnTheWay ? 'bg-orange-50 text-orange-700 border-orange-200' :
+              'bg-gray-100 text-gray-700 border-gray-200'
             }`}>
               {order.status.replace(/_/g, ' ')}
             </span>
@@ -293,25 +350,33 @@ export default function JobDetailPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6 pb-24">
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6 pb-32">
         {/* CUSTOMER INFO */}
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Informasi Pelanggan</h2>
-          <div className="flex items-start gap-4">
-            <Image
-              src={(order.userId as any)?.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=customer`}
-              width={80}
-              height={80}
-              alt="Customer"
-              className="w-16 h-16 rounded-full object-cover"
-            />
-            <div className="flex-1">
-              <h3 className="text-base font-bold text-gray-900">{(order.userId as any)?.fullName}</h3>
-              <div className="mt-3 space-y-2 text-sm text-gray-600">
-                <div className="flex items-center gap-2">
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+          <h2 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wide flex items-center gap-2">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+            Informasi Pelanggan
+          </h2>
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-full overflow-hidden bg-gray-100 border border-gray-200 shrink-0">
+                <Image
+                src={(order.userId as any)?.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${(order.userId as any)?.fullName}`}
+                width={56}
+                height={56}
+                alt="Customer"
+                className="object-cover w-full h-full"
+                />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-base font-bold text-gray-900 truncate">{(order.userId as any)?.fullName}</h3>
+              <div className="mt-1 flex flex-col gap-1 text-sm text-gray-600">
+                <div className="flex items-center gap-2 bg-gray-50 inline-flex px-2 py-1 rounded-lg w-fit">
                   <PhoneIcon />
-                  <span>{order.customerContact?.phone || (order.userId as any)?.phoneNumber || 'Tidak ada'}</span>
+                  <span className="font-mono font-medium">{order.customerContact?.phone || (order.userId as any)?.phoneNumber || '-'}</span>
                 </div>
+                {order.customerContact?.name && (
+                    <span className="text-xs text-gray-500">Penerima: {order.customerContact.name}</span>
+                )}
               </div>
             </div>
           </div>
@@ -319,254 +384,240 @@ export default function JobDetailPage() {
 
         {/* LOKASI & PETA */}
         {order.location && order.location.coordinates && (
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">Lokasi Pengerjaan</h2>
-            <div className="w-full h-64 rounded-xl overflow-hidden border border-gray-200 z-0 relative">
+          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+            <h2 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wide flex items-center gap-2">
+              <LocationIcon /> Lokasi Pengerjaan
+            </h2>
+            <div className="w-full h-56 rounded-xl overflow-hidden border border-gray-200 relative z-0 mb-4">
               <JobMap coordinates={order.location.coordinates as [number, number]} />
             </div>
-            <div className="mt-4 flex items-start gap-2 text-sm text-gray-600 bg-gray-50 p-3 rounded-xl">
-              <div className="mt-0.5"><LocationIcon /></div>
+            <div className="text-sm text-gray-700 space-y-2">
               <div>
-                <p className="font-bold text-gray-900">Alamat:</p>
+                <p className="font-bold text-gray-900">Alamat Lengkap:</p>
                 <p>{order.shippingAddress?.detail}</p>
-                <p>{order.shippingAddress?.district}, {order.shippingAddress?.city}, {order.shippingAddress?.province} {order.shippingAddress?.postalCode}</p>
-                {order.propertyDetails?.accessNote && (
-                  <p className="mt-2 text-xs italic text-amber-600">Note: {order.propertyDetails.accessNote}</p>
-                )}
+                <p className="text-gray-500">{order.shippingAddress?.district}, {order.shippingAddress?.city}, {order.shippingAddress?.province} {order.shippingAddress?.postalCode}</p>
+              </div>
+              
+              {/* Property Details */}
+              <div className="grid grid-cols-2 gap-3 mt-3 bg-gray-50 p-3 rounded-xl border border-gray-200">
+                 <div>
+                    <span className="text-xs text-gray-500">Tipe Properti</span>
+                    <p className="font-bold text-sm capitalize">{order.propertyDetails?.type || '-'}</p>
+                 </div>
+                 <div>
+                    <span className="text-xs text-gray-500">Lantai</span>
+                    <p className="font-bold text-sm">{order.propertyDetails?.floor !== null ? order.propertyDetails?.floor : '-'}</p>
+                 </div>
+                 {order.propertyDetails?.accessNote && (
+                    <div className="col-span-2 border-t border-gray-200 pt-2 mt-1">
+                        <span className="text-xs text-gray-500">Catatan Akses</span>
+                        <p className="text-sm italic text-gray-700">"{order.propertyDetails.accessNote}"</p>
+                    </div>
+                 )}
               </div>
             </div>
           </div>
         )}
 
         {/* DOKUMENTASI PEKERJAAN */}
-        {(isWorking || (order.completionEvidence && order.completionEvidence.length > 0)) && (
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">Dokumentasi Pekerjaan</h2>
-            
-            <div className="grid grid-cols-3 md:grid-cols-4 gap-3 mb-4">
-              {order.completionEvidence?.map((evidence, idx) => (
-                <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 group">
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+          <h2 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wide flex items-center gap-2">
+            <CameraIcon /> Dokumentasi
+          </h2>
+          
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            {order.attachments?.map((att, idx) => (
+                <div key={`att-${idx}`} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 group">
                   <Image 
-                    src={evidence.url.startsWith('http') ? evidence.url : `${SERVER_URL}${evidence.url}`} 
-                    alt={`Bukti ${idx + 1}`} 
+                    src={att.url.startsWith('http') ? att.url : `${SERVER_URL}${att.url}`} 
+                    alt={`Lampiran Awal ${idx + 1}`} 
                     fill 
                     className="object-cover"
                   />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
-                    <p className="text-[10px] text-white truncate">{new Date(evidence.uploadedAt || '').toLocaleTimeString('id-ID')}</p>
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center text-white text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                      Lampiran User
                   </div>
                 </div>
-              ))}
-              
-              {isWorking && (
-                <label className="aspect-square rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-red-500 hover:bg-red-50 transition-all text-gray-400 hover:text-red-600 relative">
-                  {isUploading ? (
-                    <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-red-600"></div>
-                  ) : (
-                    <>
-                      <CameraIcon />
-                      <span className="text-[10px] font-bold mt-1">Upload</span>
-                      <input 
-                        type="file" 
-                        accept="image/*" 
-                        className="hidden" 
-                        onChange={handleUpload}
-                        disabled={isUploading}
-                      />
-                    </>
-                  )}
-                </label>
-              )}
-            </div>
-            
-            {isWorking && (!order.completionEvidence || order.completionEvidence.length === 0) && (
-              <div className="p-3 bg-yellow-50 text-yellow-800 text-xs rounded-lg flex items-start gap-2">
-                <InfoIcon />
-                <span>Wajib mengupload minimal 1 foto bukti pekerjaan selesai sebelum menyelesaikan pesanan.</span>
-              </div>
-            )}
-          </div>
-        )}
+            ))}
 
-        {/* JADWAL & DETAIL */}
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Jadwal & Detail Pesanan</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-gray-500 font-bold uppercase mb-1">Jadwal Kunjungan</p>
-              <div className="flex items-center gap-2 text-gray-900 font-bold">
-                <CalendarIcon />
-                {order.scheduledAt
-                  ? new Date(order.scheduledAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-                  : 'ASAP'}
+            {order.completionEvidence?.map((evidence, idx) => (
+              <div key={`ev-${idx}`} className="relative aspect-square rounded-lg overflow-hidden border border-green-200 ring-2 ring-green-100 group">
+                <Image 
+                  src={evidence.url.startsWith('http') ? evidence.url : `${SERVER_URL}${evidence.url}`} 
+                  alt={`Bukti Selesai ${idx + 1}`} 
+                  fill 
+                  className="object-cover"
+                />
+                <div className="absolute top-1 right-1 bg-green-500 text-white p-1 rounded-full text-[8px] shadow-sm">
+                    <CheckIcon />
+                </div>
               </div>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 font-bold uppercase mb-1">Order Number</p>
-              <p className="text-gray-900 font-mono font-bold">#{order.orderNumber || order._id.slice(-8)}</p>
-            </div>
+            ))}
+            
+            {isWorking && (
+              <label className="aspect-square rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-red-500 hover:bg-red-50 transition-all text-gray-400 hover:text-red-600 bg-gray-50">
+                {isUploading ? (
+                  <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-red-600"></div>
+                ) : (
+                  <>
+                    <CameraIcon />
+                    <span className="text-[10px] font-bold mt-1 text-center px-1">Upload Bukti Selesai</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      onChange={handleUpload}
+                      disabled={isUploading}
+                    />
+                  </>
+                )}
+              </label>
+            )}
           </div>
         </div>
 
-        {/* LAYANAN & HARGA */}
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Layanan</h2>
-          <div className="space-y-4">
-            {order.items?.map((item, idx) => (
-              <div key={idx} className="flex flex-col gap-1 pb-3 border-b border-slate-50 last:border-0 last:pb-0">
-                <div className="flex justify-between items-start">
-                  <span className="text-sm font-semibold text-slate-800">{item.name}</span>
-                  <span className="text-sm font-bold text-slate-900">
-                    Rp {new Intl.NumberFormat('id-ID').format(item.price * item.quantity)}
-                  </span>
+        {/* RINCIAN BIAYA & PENGHASILAN (REVISI) */}
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm space-y-6">
+          <div className="flex justify-between items-center border-b border-gray-100 pb-4">
+            <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wide flex items-center gap-2">
+              <ReceiptIcon /> Rincian Transaksi
+            </h2>
+            <div className="text-xs text-gray-400 font-mono">#{order.orderNumber}</div>
+          </div>
+
+          {/* 1. DETAIL LAYANAN */}
+          <div className="space-y-3">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">1. Jasa Layanan</p>
+            {order.items.map((item, idx) => (
+              <div key={idx} className="flex justify-between text-sm">
+                <div className="flex-1">
+                  <span className="text-gray-800 font-medium">{item.name}</span>
+                  <div className="text-xs text-gray-400">{item.quantity} x Rp {new Intl.NumberFormat('id-ID').format(item.price)}</div>
                 </div>
-                <div className="flex justify-between items-center text-xs text-slate-500">
-                  <span>{item.quantity} x Rp {new Intl.NumberFormat('id-ID').format(item.price)}</span>
-                </div>
-                {item.note && (
-                  <div className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 p-2 rounded-lg">
-                    <InfoIcon /> <span className="italic">"{item.note}"</span>
-                  </div>
-                )}
+                <span className="font-bold text-gray-900">
+                  Rp {new Intl.NumberFormat('id-ID').format(item.price * item.quantity)}
+                </span>
               </div>
             ))}
           </div>
-        </div>
 
-        {/* [BARU] BIAYA TAMBAHAN */}
-        {(isWorking || (order.additionalFees && order.additionalFees.length > 0)) && (
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-gray-900">Biaya Tambahan</h2>
+          {/* 2. BIAYA TAMBAHAN */}
+          <div className="space-y-3 pt-4 border-t border-gray-100">
+            <div className="flex justify-between items-center">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">2. Biaya Tambahan</p>
               {isWorking && (
                 <button 
                   onClick={() => setShowFeeModal(true)}
-                  className="text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg hover:bg-red-100 flex items-center gap-1"
+                  className="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded hover:bg-red-100 font-bold transition-colors border border-red-100"
                 >
-                  <PlusIcon /> Tambah
+                  + Tambah
                 </button>
               )}
             </div>
 
-            {!order.additionalFees || order.additionalFees.length === 0 ? (
-              <p className="text-xs text-gray-400 italic">Tidak ada biaya tambahan.</p>
+            {(!order.additionalFees || order.additionalFees.length === 0) ? (
+              <p className="text-xs text-gray-400 italic">Belum ada biaya tambahan.</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {order.additionalFees.map((fee, idx) => (
-                  <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100">
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">{fee.description}</p>
-                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                        fee.status === 'paid' ? 'bg-green-100 text-green-700' :
-                        fee.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                        'bg-yellow-100 text-yellow-700'
+                  <div key={idx} className="flex justify-between items-center text-sm bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                    <div className="flex flex-col">
+                      <span className="text-gray-800 font-medium">{fee.description}</span>
+                      <span className={`text-[10px] font-bold uppercase ${
+                        fee.status === 'paid' ? 'text-green-600' :
+                        fee.status === 'approved_unpaid' ? 'text-blue-600' :
+                        fee.status === 'rejected' ? 'text-red-500 line-through' :
+                        'text-yellow-600'
                       }`}>
                         {fee.status.replace(/_/g, ' ')}
                       </span>
                     </div>
-                    <p className="text-sm font-bold text-gray-900">Rp {new Intl.NumberFormat('id-ID').format(fee.amount)}</p>
+                    <span className={`font-bold ${fee.status === 'rejected' ? 'text-gray-300 line-through' : 'text-gray-900'}`}>
+                      Rp {new Intl.NumberFormat('id-ID').format(fee.amount)}
+                    </span>
                   </div>
                 ))}
               </div>
             )}
           </div>
-        )}
 
-        {/* RINGKASAN BIAYA (Updated with Additional Fees) */}
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Ringkasan Biaya</h2>
-          <div className="space-y-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Total Layanan</span>
-              <span className="font-bold text-gray-900">Rp {new Intl.NumberFormat('id-ID').format(order.totalAmount - order.adminFee)}</span>
-            </div>
-            
-            {/* Tampilkan total biaya tambahan yang sudah disetujui/dibayar */}
-            {order.additionalFees && order.additionalFees.length > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Biaya Tambahan (Disetujui)</span>
-                <span className="font-bold text-gray-900">
-                  Rp {new Intl.NumberFormat('id-ID').format(
-                    order.additionalFees
-                      .filter(f => f.status === 'paid' || f.status === 'approved_unpaid')
-                      .reduce((sum, f) => sum + f.amount, 0)
-                  )}
-                </span>
-              </div>
-            )}
+          {/* 3. SUBTOTAL LAYANAN (JASA + TAMBAHAN) - REQUESTED FEATURE */}
+          <div className="flex justify-between items-center pt-4 border-t-2 border-gray-100 bg-blue-50/50 p-3 rounded-lg -mx-2">
+            <span className="text-sm font-bold text-blue-800 uppercase">Subtotal Layanan (1 + 2)</span>
+            <span className="text-lg font-black text-blue-900">
+              Rp {new Intl.NumberFormat('id-ID').format(financials.serviceSubtotal)}
+            </span>
+          </div>
 
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Biaya Admin</span>
-              <span className="font-bold text-gray-900">Rp {new Intl.NumberFormat('id-ID').format(order.adminFee)}</span>
+          {/* 4. INFO TAGIHAN CUSTOMER */}
+          <div className="space-y-2 pt-4 border-t border-gray-100 text-sm text-gray-600">
+            <div className="flex justify-between">
+              <span>Biaya Admin Aplikasi</span>
+              <span>Rp {new Intl.NumberFormat('id-ID').format(order.adminFee)}</span>
             </div>
             {order.discountAmount > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Diskon Voucher</span>
-                <span className="font-bold text-green-600">-Rp {new Intl.NumberFormat('id-ID').format(order.discountAmount)}</span>
+              <div className="flex justify-between">
+                <span>Diskon Voucher</span>
+                <span className="text-green-600 font-bold">-Rp {new Intl.NumberFormat('id-ID').format(order.discountAmount)}</span>
               </div>
             )}
-            <div className="border-t border-gray-200 pt-3 flex justify-between">
-              <span className="font-bold text-gray-900">Total Bayar Pelanggan</span>
-              <span className="text-lg font-black text-gray-900">
-                {/* Total = Base Total + Approved Additional Fees */}
+            <div className="flex justify-between items-center font-bold text-gray-900 pt-2 border-t border-gray-100 mt-2">
+              <span>Total Tagihan Customer</span>
+              <span className="text-base">Rp {new Intl.NumberFormat('id-ID').format(financials.customerGrandTotal)}</span>
+            </div>
+          </div>
+
+          {/* 5. ESTIMASI PENGHASILAN MITRA */}
+          <div className="mt-6 bg-gray-900 text-white rounded-xl p-5 shadow-lg relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+            
+            <div className="flex items-center gap-2 mb-3 text-gray-300">
+              <WalletIcon />
+              <span className="text-xs font-bold uppercase tracking-widest">{isCompleted ? 'Penghasilan Bersih' : 'Estimasi Penghasilan'}</span>
+            </div>
+
+            <div className="space-y-1 mb-4 relative z-10">
+              <span className="text-4xl font-black tracking-tight">
                 Rp {new Intl.NumberFormat('id-ID').format(
-                  order.totalAmount + (order.additionalFees?.filter(f => f.status === 'paid' || f.status === 'approved_unpaid').reduce((sum, f) => sum + f.amount, 0) || 0)
+                  isCompleted && earningsBreakdown 
+                    ? earningsBreakdown.earningsAmount 
+                    : financials.estimatedNetEarnings
                 )}
               </span>
+              <p className="text-xs text-gray-400">
+                {isCompleted 
+                  ? 'Dana sudah masuk ke saldo dompet.' 
+                  : 'Akan masuk ke saldo setelah pesanan selesai.'}
+              </p>
+            </div>
+
+            {/* Rincian Potongan */}
+            <div className="border-t border-white/10 pt-3 text-xs text-gray-300 space-y-1 relative z-10">
+              <div className="flex justify-between">
+                <span>Pendapatan Kotor (Subtotal - Diskon)</span>
+                <span>Rp {new Intl.NumberFormat('id-ID').format(financials.grossRevenue)}</span>
+              </div>
+              <div className="flex justify-between text-red-300">
+                <span>Potongan Platform (~{financials.platformFeePercent}%)</span>
+                <span>-Rp {new Intl.NumberFormat('id-ID').format(
+                   isCompleted && earningsBreakdown 
+                   ? earningsBreakdown.platformCommissionAmount 
+                   : financials.estimatedCommission
+                )}</span>
+              </div>
             </div>
           </div>
+
         </div>
 
-        {/* EARNINGS BREAKDOWN */}
-        {isCompleted && earningsBreakdown && (
-          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl p-6 border border-green-200 shadow-sm">
-            <div className="flex items-start gap-3 mb-4">
-              <CheckIcon />
-              <div>
-                <h2 className="text-lg font-bold text-green-900">Penghasilan Anda</h2>
-                <p className="text-sm text-green-700">Earnings telah ditambahkan ke saldo akun</p>
-              </div>
-            </div>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-green-700">Service Revenue</span>
-                <span className="font-bold text-green-900">Rp {new Intl.NumberFormat('id-ID').format(earningsBreakdown.serviceRevenue)}</span>
-              </div>
-              
-              {/* [NEW] Tampilkan Breakdown Biaya Tambahan Jika Ada */}
-              {earningsBreakdown.additionalFeeAmount > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-green-700">Biaya Tambahan</span>
-                  <span className="font-bold text-green-900">
-                    +Rp {new Intl.NumberFormat('id-ID').format(earningsBreakdown.additionalFeeAmount)}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex justify-between">
-                <span className="text-green-700">Komisi Platform ({earningsBreakdown.platformCommissionPercent}%)</span>
-                <span className="font-bold text-red-600">-Rp {new Intl.NumberFormat('id-ID').format(earningsBreakdown.platformCommissionAmount)}</span>
-              </div>
-              <div className="border-t border-green-200 pt-3 flex justify-between">
-                <span className="font-bold text-green-900">Earnings Bersih</span>
-                <span className="text-xl font-black text-green-600">Rp {new Intl.NumberFormat('id-ID').format(earningsBreakdown.earningsAmount)}</span>
-              </div>
-              <div className="pt-2 text-xs text-green-600 font-medium">
-                💰 Saldo akun Anda: Rp {new Intl.NumberFormat('id-ID').format(user?.balance || 0)}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ACTION BUTTONS */}
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Tindakan</h2>
-          <div className="flex flex-wrap gap-3">
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 z-30 lg:relative lg:bg-transparent lg:border-0 lg:p-0">
+          <div className="max-w-4xl mx-auto flex gap-3">
             {isAccepted && (
               <button
                 onClick={() => handleStatusUpdate('on_the_way')}
                 disabled={isUpdating}
-                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 transition-all"
+                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-white bg-orange-600 hover:bg-orange-700 shadow-lg shadow-orange-100 disabled:opacity-50 transition-all"
               >
                 {isUpdating ? 'Memproses...' : 'Mulai Perjalanan'}
               </button>
@@ -576,7 +627,7 @@ export default function JobDetailPage() {
               <button
                 onClick={() => handleStatusUpdate('working')}
                 disabled={isUpdating}
-                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 transition-all"
+                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-100 disabled:opacity-50 transition-all"
               >
                 {isUpdating ? 'Memproses...' : 'Mulai Bekerja'}
               </button>
@@ -585,28 +636,16 @@ export default function JobDetailPage() {
             {isWorking && (
               <button
                 onClick={() => handleStatusUpdate('waiting_approval')}
-                // Disable jika: updating, ATAU belum ada foto bukti, ATAU ada fee yang pending/unpaid
-                disabled={
-                  isUpdating || 
-                  !order.completionEvidence || 
-                  order.completionEvidence.length === 0 ||
-                  (order.additionalFees?.some(f => f.status === 'pending_approval' || f.status === 'approved_unpaid') ?? false)
-                }
-                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:bg-gray-300 transition-all"
+                disabled={isUpdating || !order.completionEvidence || order.completionEvidence.length === 0}
+                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100 disabled:opacity-50 disabled:bg-gray-300 transition-all"
               >
                 {isUpdating ? 'Memproses...' : 'Selesaikan Pekerjaan'}
               </button>
             )}
 
             {isWaitingApproval && (
-              <div className="w-full py-3 rounded-xl text-center text-sm font-bold text-blue-700 bg-blue-50 border border-blue-200">
-                ⏳ Menunggu konfirmasi dari pelanggan...
-              </div>
-            )}
-
-            {isCompleted && (
-              <div className="w-full py-3 rounded-xl text-center text-sm font-bold text-green-700 bg-green-50 border border-green-200">
-                ✓ Pesanan selesai
+              <div className="w-full py-3.5 rounded-xl text-center text-sm font-bold text-blue-700 bg-blue-50 border border-blue-200 animate-pulse">
+                ⏳ Menunggu konfirmasi pembayaran pelanggan...
               </div>
             )}
           </div>
@@ -615,9 +654,10 @@ export default function JobDetailPage() {
 
       {/* MODAL AJUKAN BIAYA */}
       {showFeeModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-6 shadow-xl animate-in slide-in-from-bottom duration-300">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Ajukan Biaya Tambahan</h3>
+            <p className="text-xs text-gray-500 mb-4">Biaya untuk sparepart atau pekerjaan di luar paket.</p>
             <form onSubmit={handleSubmitFee} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Deskripsi</label>
@@ -626,7 +666,7 @@ export default function JobDetailPage() {
                   value={feeDescription}
                   onChange={(e) => setFeeDescription(e.target.value)}
                   placeholder="Contoh: Ganti kapasitor AC"
-                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none focus:border-red-500"
+                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100"
                   required
                 />
               </div>
@@ -637,7 +677,7 @@ export default function JobDetailPage() {
                   value={feeAmount}
                   onChange={(e) => setFeeAmount(e.target.value)}
                   placeholder="0"
-                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none focus:border-red-500 font-bold"
+                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100 font-bold"
                   required
                 />
               </div>
@@ -645,14 +685,14 @@ export default function JobDetailPage() {
                 <button
                   type="button"
                   onClick={() => setShowFeeModal(false)}
-                  className="flex-1 py-3 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-xl"
+                  className="flex-1 py-3 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingFee}
-                  className="flex-1 py-3 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-lg shadow-red-100 disabled:opacity-50"
+                  className="flex-1 py-3 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-lg shadow-red-100 disabled:opacity-50 transition-all"
                 >
                   {isSubmittingFee ? 'Mengirim...' : 'Ajukan'}
                 </button>

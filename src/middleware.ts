@@ -11,6 +11,7 @@ interface DecodedToken {
   role?: Role;
   activeRole?: Role;
   roles?: Role[];
+  providerStatus?: 'pending' | 'verified' | 'rejected' | 'suspended'; // [BARU]
   exp: number;
 }
 
@@ -20,8 +21,11 @@ const PUBLIC_ROUTES = [
   '/register',
 ];
 
-// Routes khusus Mitra (Sudah Terverifikasi)
-const PROVIDER_ROUTES = ['/dashboard', '/jobs', '/messages', '/settings'];
+// Routes khusus Mitra (Harus Verified)
+const PROVIDER_ROUTES = ['/dashboard', '/jobs', '/messages', '/settings', '/earnings'];
+
+// Routes Status Pendaftaran (Pending/Rejected)
+const VERIFICATION_ROUTE = '/become-partner'; // Kita gunakan halaman onboarding/status sebagai satu halaman yang sama
 
 function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.some(route => pathname.startsWith(route));
@@ -69,6 +73,9 @@ export function middleware(request: NextRequest) {
     user?.role === 'provider' || 
     (user?.roles && user.roles.includes('provider'));
 
+  // Cek status verifikasi mitra
+  const isVerifiedProvider = hasProviderRole && user?.providerStatus === 'verified';
+
   // 1. Jika User belum login dan akses halaman non-public -> Lempar ke Login
   if (!user && !isPublicRoute(pathname)) {
     const loginUrl = new URL('/login', request.url);
@@ -78,31 +85,34 @@ export function middleware(request: NextRequest) {
 
   // 2. Jika User sudah login tapi akses halaman Login/Register
   if (user && isPublicRoute(pathname)) {
-    if (hasProviderRole) {
+    if (isVerifiedProvider) {
         return NextResponse.redirect(new URL('/dashboard', request.url));
     }
-    // Jika customer, biarkan di login/register atau redirect ke onboarding jika perlu
-    // Disini kita biarkan agar logic di login page yang menghandle redirect
     return NextResponse.next();
   }
 
   // 3. Proteksi Halaman Provider (Dashboard, Jobs, dll)
   if (isProviderRoute(pathname)) {
+    // Jika bukan provider sama sekali -> Ke halaman onboarding
     if (!hasProviderRole) {
-      // Jika bukan provider, tapi customer yang mencoba akses dashboard
-      // Arahkan ke halaman onboarding mitra
       const onboardingUrl = new URL('/become-partner', request.url);
       return NextResponse.redirect(onboardingUrl);
     }
+
+    // Jika Provider tapi belum verified (Pending/Rejected/Suspended) -> Ke halaman status
+    if (!isVerifiedProvider) {
+      const verificationUrl = new URL(VERIFICATION_ROUTE, request.url);
+      return NextResponse.redirect(verificationUrl);
+    }
   }
 
-  // 4. [NEW] Proteksi Halaman Onboarding (/become-partner)
-  // Jika user sudah jadi Provider, tidak perlu ke halaman onboarding lagi
-  if (pathname === '/become-partner') {
-    if (hasProviderRole) {
+  // 4. Proteksi Halaman Onboarding / Verifikasi (/become-partner)
+  if (pathname === VERIFICATION_ROUTE) {
+    // Jika user SUDAH verified, tidak perlu melihat halaman status lagi, langsung ke dashboard
+    if (isVerifiedProvider) {
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
-    // Customer allowed
+    // Jika user belum verified (pending/rejected) atau customer biasa, BOLEH akses halaman ini
   }
 
   return NextResponse.next();

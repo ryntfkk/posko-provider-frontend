@@ -1,15 +1,15 @@
-// src/app/(provider)/dashboard/page.tsx
+// src/app/(dashboard)/dashboard/page.tsx
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { io, Socket } from 'socket.io-client';
 import { fetchIncomingOrders, acceptOrder, fetchMyOrders } from '@/features/orders/api';
 import { Order } from '@/features/orders/types';
 import { fetchMyProviderProfile, updateAvailability } from '@/features/providers/api';
 import { fetchProfile } from '@/features/auth/api';
 import { User } from '@/features/auth/types';
+import { useSocket } from '@/hooks/useSocket';
 
 // --- ICONS ---
 const WalletIcon = () => (
@@ -49,8 +49,6 @@ const ChevronRight = () => (
   </svg>
 );
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
-
 export default function ProviderDashboardPage() {
   // --- STATE USER & DASHBOARD ---
   const [user, setUser] = useState<User | null>(null);
@@ -67,9 +65,10 @@ export default function ProviderDashboardPage() {
   const [bookedDates, setBookedDates] = useState<string[]>([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  const socketRef = useRef<Socket | null>(null);
+  // [PERUBAHAN] Gunakan global socket
+  const { socket } = useSocket();
 
-  // [NEW] Helper function untuk refresh user profile
+  // Helper function untuk refresh user profile
   const refreshUserProfile = async () => {
     try {
       const profileRes = await fetchProfile();
@@ -97,14 +96,14 @@ export default function ProviderDashboardPage() {
   useEffect(() => {
     const initData = async () => {
       try {
-        // 1.Fetch User Profile
+        // 1. Fetch User Profile
         const profileResAuth = await fetchProfile();
         setUser(profileResAuth.data.profile);
 
         // 2. Fetch Orders Initial
         await refreshOrders();
 
-        // 3.Fetch Provider Details (Calendar etc)
+        // 3. Fetch Provider Details (Calendar etc)
         const providerRes = await fetchMyProviderProfile();
         if (providerRes.data) {
           const blocked = (providerRes.data.blockedDates || []).map((d: string) => d.split('T')[0]);
@@ -119,58 +118,45 @@ export default function ProviderDashboardPage() {
       }
     };
     initData();
-
-    // 4. [NEW] Initialize Socket Connection
-    const token = localStorage.getItem('posko_token');
-    if (token) {
-        if (!socketRef.current) {
-            const newSocket = io(SOCKET_URL, { 
-                auth: { token },
-                transports: ['websocket', 'polling'],
-                reconnection: true
-            });
-
-            newSocket.on('connect', () => {
-                console.log('✅ Dashboard Socket Connected');
-            });
-
-            // Listen: Order Baru Masuk (Direct Order / Basic Order broadcast)
-            newSocket.on('order_new', (data) => {
-                console.log('🔔 New Order Received:', data);
-                // Tambahkan ke incoming orders jika belum ada
-                setIncomingOrders(prev => {
-                    if (prev.find(o => o._id === data.order._id)) return prev;
-                    return [data.order, ...prev];
-                });
-                alert(`🔔 Pesanan Baru: ${data.message || 'Cek tab Order Masuk'}`);
-            });
-
-            // Listen: Update Status Order (Accept, Paid, Cancel, etc)
-            newSocket.on('order_status_update', (data) => {
-                console.log('🔄 Order Update:', data);
-                refreshOrders(); // Refresh data penuh untuk sinkronisasi
-                refreshUserProfile(); // Update saldo jika ada earnings
-            });
-
-            socketRef.current = newSocket;
-        }
-    }
-
-    return () => {
-        if (socketRef.current) {
-            socketRef.current.disconnect();
-            socketRef.current = null;
-        }
-    };
   }, []);
+
+  // [PERUBAHAN] Effect khusus untuk Socket Listeners
+  useEffect(() => {
+    if (!socket) return;
+
+    // Listener: Order Baru Masuk
+    const handleNewOrder = (data: any) => {
+        console.log('🔔 New Order Received:', data);
+        setIncomingOrders(prev => {
+            if (prev.find(o => o._id === data.order._id)) return prev;
+            return [data.order, ...prev];
+        });
+        alert(`🔔 Pesanan Baru: ${data.message || 'Cek tab Order Masuk'}`);
+    };
+
+    // Listener: Update Status Order
+    const handleStatusUpdate = (data: any) => {
+        console.log('🔄 Order Update:', data);
+        refreshOrders(); 
+        refreshUserProfile(); 
+    };
+
+    socket.on('order_new', handleNewOrder);
+    socket.on('order_status_update', handleStatusUpdate);
+
+    // Cleanup listeners
+    return () => {
+        socket.off('order_new', handleNewOrder);
+        socket.off('order_status_update', handleStatusUpdate);
+    };
+  }, [socket]); // Re-run hanya jika socket instance berubah (connected/reconnected)
 
   // --- STATISTIK ---
   const activeJobs = useMemo(() => myJobs.filter(o => ['accepted', 'on_the_way', 'working', 'waiting_approval'].includes(o.status)), [myJobs]);
   const historyJobs = useMemo(() => myJobs.filter(o => ['completed', 'cancelled', 'failed'].includes(o.status)), [myJobs]);
   const completedCount = useMemo(() => myJobs.filter(o => o.status === 'completed').length, [myJobs]);
-  // [FIXED] Gunakan user.balance dari User model (yang sudah terupdate dari backend)
   const totalEarnings = useMemo(() => user?.balance || 0, [user?.balance]);
-  const rating = 5.0; // Placeholder, idealnya dari API
+  const rating = 5.0; // Placeholder
 
   // --- HANDLERS ORDER ---
   const handleAccept = async (orderId: string) => {
@@ -178,10 +164,7 @@ export default function ProviderDashboardPage() {
     setProcessingId(orderId);
     try {
       await acceptOrder(orderId);
-      // alert('Pesanan diterima! Cek tab Berlangsung.'); 
-      // Alert dihapus, tunggu update socket atau refresh manual
       
-      // Manual refresh immediately for UX response
       await refreshOrders();
       const profileRes = await fetchMyProviderProfile();
       if (profileRes.data) {
