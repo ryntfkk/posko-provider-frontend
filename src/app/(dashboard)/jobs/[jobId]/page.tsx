@@ -43,6 +43,12 @@ const PhoneIcon = () => (
   </svg>
 );
 
+const ChatIcon = () => (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+);
+
 const InfoIcon = () => (
   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
@@ -94,6 +100,7 @@ export default function JobDetailPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [earningsBreakdown, setEarningsBreakdown] = useState<any>(null);
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
 
   // State untuk Additional Fee Modal
   const [showFeeModal, setShowFeeModal] = useState(false);
@@ -300,6 +307,34 @@ export default function JobDetailPage() {
     }
   };
 
+  // Fungsi untuk Chat Pelanggan
+  const handleChatWithCustomer = async () => {
+    if (!order || !order.userId) return;
+    
+    // Safety check jika userId adalah object (Populated) atau string
+    const targetUserId = typeof order.userId === 'object' 
+        ? (order.userId as any)._id 
+        : order.userId;
+
+    if (!targetUserId) {
+        alert("Data pelanggan tidak valid.");
+        return;
+    }
+
+    setIsCreatingChat(true);
+    try {
+        // Panggil endpoint create/get room
+        await api.post('/chat', { targetUserId });
+        // Redirect ke halaman pesan
+        router.push('/messages');
+    } catch (error: any) {
+        console.error('Failed to create chat room:', error);
+        alert(error.response?.data?.message || 'Gagal memulai chat.');
+    } finally {
+        setIsCreatingChat(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -369,15 +404,30 @@ export default function JobDetailPage() {
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-base font-bold text-gray-900 truncate">{(order.userId as any)?.fullName}</h3>
-              <div className="mt-1 flex flex-col gap-1 text-sm text-gray-600">
+              <div className="mt-1 flex flex-col sm:flex-row gap-2 text-sm text-gray-600">
                 <div className="flex items-center gap-2 bg-gray-50 inline-flex px-2 py-1 rounded-lg w-fit">
                   <PhoneIcon />
                   <span className="font-mono font-medium">{order.customerContact?.phone || (order.userId as any)?.phoneNumber || '-'}</span>
                 </div>
-                {order.customerContact?.name && (
-                    <span className="text-xs text-gray-500">Penerima: {order.customerContact.name}</span>
-                )}
+                
+                {/* TOMBOL CHAT (BARU) */}
+                <button 
+                  onClick={handleChatWithCustomer}
+                  disabled={isCreatingChat}
+                  className="flex items-center gap-2 bg-red-50 text-red-600 px-3 py-1 rounded-lg hover:bg-red-100 transition-colors border border-red-100 font-bold text-xs"
+                >
+                    {isCreatingChat ? (
+                        <span className="animate-pulse">Memuat...</span>
+                    ) : (
+                        <>
+                            <ChatIcon /> Chat Customer
+                        </>
+                    )}
+                </button>
               </div>
+              {order.customerContact?.name && (
+                  <span className="text-xs text-gray-500 mt-1 block">Penerima: {order.customerContact.name}</span>
+              )}
             </div>
           </div>
         </div>
