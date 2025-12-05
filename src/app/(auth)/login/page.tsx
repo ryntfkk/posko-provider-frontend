@@ -34,6 +34,7 @@ interface DecodedToken {
   role?: string; 
   activeRole?: string;
   roles?: string[];
+  providerStatus?: string; // Tambahan field status
   exp: number;
 }
 
@@ -76,8 +77,11 @@ export default function LoginPage() {
       
       const decoded = jwtDecode<DecodedToken>(token);
       
-      // Validasi Role
-      const isProvider = 
+      // [FIX] Validasi Role & Status Provider (Updated Logic)
+      const isVerifiedProvider = decoded.providerStatus === 'verified';
+      const hasProviderData = decoded.providerStatus !== undefined && decoded.providerStatus !== null;
+
+      const isProviderRole = 
         decoded.activeRole === 'provider' || 
         decoded.role === 'provider' || 
         (decoded.roles && decoded.roles.includes('provider'));
@@ -87,24 +91,25 @@ export default function LoginPage() {
         decoded.role === 'admin' || 
         (decoded.roles && decoded.roles.includes('admin'));
 
-      // Check jika user hanya customer biasa
-      const isCustomer = 
-        !isProvider && !isAdmin && 
-        (decoded.activeRole === 'customer' || decoded.role === 'customer' || (decoded.roles && decoded.roles.includes('customer')));
-
-      if (isProvider || isAdmin) {
-        // Jika sudah Mitra/Admin, masuk ke Dashboard
+      if (isAdmin) {
         router.push('/dashboard');
         router.refresh();
-      } else if (isCustomer) {
-        // [FIX] Jika Customer, arahkan ke halaman Onboarding Mitra
+      } 
+      // Prioritaskan status verified dari token
+      else if (isVerifiedProvider || isProviderRole) {
+        router.push('/dashboard');
+        router.refresh();
+      } 
+      // Jika punya data provider tapi belum verified (pending/rejected/suspended)
+      else if (hasProviderData) {
         router.push('/become-partner');
         router.refresh();
-      } else {
-        // Jika role tidak dikenali sama sekali
-        setErrorMsg('Akun tidak memiliki akses yang sesuai.');
-        setIsLoading(false);
-        localStorage.removeItem('posko_token');
+      } 
+      // Customer murni
+      else {
+        // Arahkan ke halaman pendaftaran mitra
+        router.push('/become-partner');
+        router.refresh();
       }
       
     } catch (error: any) {
