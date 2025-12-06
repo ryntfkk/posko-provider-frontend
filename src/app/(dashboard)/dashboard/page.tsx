@@ -37,6 +37,18 @@ const CalendarIcon = () => (
   </svg>
 );
 
+const ClockIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+const PaperClipIcon = () => (
+  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+  </svg>
+);
+
 const ChevronLeft = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
@@ -126,17 +138,17 @@ export default function ProviderDashboardPage() {
 
     // Listener: Order Baru Masuk
     const handleNewOrder = (data: any) => {
-        console.log('🔔 New Order Received:', data);
+        console.log('粕 New Order Received:', data);
         setIncomingOrders(prev => {
             if (prev.find(o => o._id === data.order._id)) return prev;
             return [data.order, ...prev];
         });
-        alert(`🔔 Pesanan Baru: ${data.message || 'Cek tab Order Masuk'}`);
+        alert(`粕 Pesanan Baru: ${data.message || 'Cek tab Order Masuk'}`);
     };
 
     // Listener: Update Status Order
     const handleStatusUpdate = (data: any) => {
-        console.log('🔄 Order Update:', data);
+        console.log('売 Order Update:', data);
         refreshOrders(); 
         refreshUserProfile(); 
     };
@@ -149,7 +161,7 @@ export default function ProviderDashboardPage() {
         socket.off('order_new', handleNewOrder);
         socket.off('order_status_update', handleStatusUpdate);
     };
-  }, [socket]); // Re-run hanya jika socket instance berubah (connected/reconnected)
+  }, [socket]); 
 
   // --- STATISTIK ---
   const activeJobs = useMemo(() => myJobs.filter(o => ['accepted', 'on_the_way', 'working', 'waiting_approval'].includes(o.status)), [myJobs]);
@@ -160,7 +172,7 @@ export default function ProviderDashboardPage() {
 
   // --- HANDLERS ORDER ---
   const handleAccept = async (orderId: string) => {
-    if (! confirm('Ambil pesanan ini?')) return;
+    if (! confirm('Ambil pesanan ini? Pastikan Anda bisa datang sesuai jadwal.')) return;
     setProcessingId(orderId);
     try {
       await acceptOrder(orderId);
@@ -313,7 +325,7 @@ export default function ProviderDashboardPage() {
             <div className="relative z-10 flex flex-col h-full justify-between">
               <div className="flex justify-between items-start">
                 <div>
-                  <h2 className="text-2xl lg:text-3xl font-bold mb-1">Halo, {user.fullName.split(' ')[0]}!  👋</h2>
+                  <h2 className="text-2xl lg:text-3xl font-bold mb-1">Halo, {user.fullName.split(' ')[0]}!  窓</h2>
                   <p className="text-red-100 text-sm lg:text-base opacity-90">Kelola pesanan dan ketersediaan tanggalmu.</p>
                 </div>
                 <button
@@ -391,37 +403,58 @@ export default function ProviderDashboardPage() {
                 </div>
               ) : (
                 incomingOrders.map((order) => (
-                  <div key={order._id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all relative overflow-hidden">
-                    {order.orderType === 'direct' && (
-                      <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] px-2 py-1 rounded-bl-lg font-bold">DIRECT</div>
-                    )}
-                    {order.status === 'paid' && (
-                      <div className="absolute top-0 right-0 bg-green-600 text-white text-[10px] px-2 py-1 rounded-bl-lg font-bold">PAID</div>
-                    )}
+                  <div key={order._id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all relative overflow-hidden flex flex-col h-full">
+                    {/* [FIX] Labeling: Gunakan flex row untuk badge agar tidak bertumpuk */}
+                    <div className="absolute top-0 right-0 flex">
+                        {order.orderType === 'direct' ? (
+                            <div className="bg-purple-600 text-white text-[10px] px-3 py-1 rounded-bl-xl font-bold z-10">DIRECT</div>
+                        ) : (
+                            <div className="bg-gray-600 text-white text-[10px] px-3 py-1 rounded-bl-xl font-bold z-10">BASIC</div>
+                        )}
+                        {order.status === 'paid' && (
+                            <div className="bg-green-600 text-white text-[10px] px-3 py-1 rounded-bl-xl font-bold ml-[-8px] z-0 pl-4">PAID</div>
+                        )}
+                    </div>
 
-                    <div className="mb-3">
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Jadwal Kunjungan</p>
-                      <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-lg border border-gray-100">
-                        <CalendarIcon />
-                        <span className="text-sm font-bold text-gray-900">
-                          {order.scheduledAt
-                            ?  new Date(order.scheduledAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-                            : 'Segera (ASAP)'}
+                    {/* [FIX] Header: Service Name & Order Number */}
+                    <div className="mb-4 pr-16">
+                        <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold uppercase line-clamp-1 inline-block mb-1">
+                            {order.items[0]?.name} {order.items.length > 1 && `+${order.items.length - 1}`}
                         </span>
+                        <p className="text-[10px] text-gray-400 font-mono">#{order.orderNumber || order._id.slice(-6).toUpperCase()}</p>
+                    </div>
+
+                    {/* [FIX] Schedule Section: Tambah Time Slot */}
+                    <div className="mb-4 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                      <div className="flex items-start gap-3 mb-2">
+                        <CalendarIcon />
+                        <div>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase">Tanggal Kunjungan</p>
+                            <p className="text-sm font-bold text-gray-900">
+                                {order.scheduledAt
+                                ?  new Date(order.scheduledAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                                : 'Segera (ASAP)'}
+                            </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-start gap-3">
+                        <ClockIcon />
+                        <div>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase">Jam / Slot Waktu</p>
+                            <p className="text-sm font-bold text-gray-900">
+                                {order.scheduledTimeSlot 
+                                    ? `${order.scheduledTimeSlot.preferredStart} - ${order.scheduledTimeSlot.preferredEnd}` 
+                                    : '09:00 - 17:00 (Fleksibel)'
+                                }
+                            </p>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex justify-between items-start mb-4">
-                      <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold uppercase line-clamp-1">
-                        {order.items[0]?.name} {order.items.length > 1 && `+${order.items.length - 1}`}
-                      </span>
-                      <span className="text-xs font-bold text-green-600">
-                        Rp {new Intl.NumberFormat('id-ID').format(order.totalAmount)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-10 h-10 rounded-full bg-gray-100 overflow-hidden shrink-0">
+                    {/* [FIX] Customer & Location: Tambah Detail Alamat */}
+                    <div className="flex items-start gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-full bg-gray-100 overflow-hidden shrink-0 mt-1">
                         <Image
                           src={(order.userId as { profilePictureUrl?: string })?.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=user`}
                           width={40}
@@ -430,22 +463,49 @@ export default function ProviderDashboardPage() {
                           className="object-cover w-full h-full"
                         />
                       </div>
-                      <div>
-                        <h3 className="font-bold text-gray-900 text-sm">{(order.userId as { fullName?: string })?.fullName || 'Pelanggan'}</h3>
-                        <p className="text-xs text-gray-500 flex items-center gap-1">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-gray-900 text-sm truncate">{(order.userId as { fullName?: string })?.fullName || 'Pelanggan'}</h3>
+                        <p className="text-xs text-gray-500 flex items-start gap-1 mt-0.5">
                           <LocationIcon />
-                          {order.shippingAddress?.city || 'Lokasi'}
+                          <span className="line-clamp-2">
+                            {order.shippingAddress?.detail 
+                                ? `${order.shippingAddress.detail}, ${order.shippingAddress.city}` 
+                                : order.shippingAddress?.city || 'Lokasi Customer'}
+                          </span>
                         </p>
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleAccept(order._id)}
-                      disabled={!! processingId}
-                      className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-all shadow-lg shadow-red-100"
-                    >
-                      {processingId === order._id ? 'Memproses...' : 'Ambil Pesanan'}
-                    </button>
+                    {/* [FIX] Note & Attachments: Tampilkan Note */}
+                    {(order.orderNote || (order.attachments && order.attachments.length > 0)) && (
+                        <div className="mb-4 px-3 py-2 bg-yellow-50 rounded-lg border border-yellow-100">
+                            {order.orderNote && (
+                                <p className="text-xs text-gray-700 italic line-clamp-2 mb-1">"{order.orderNote}"</p>
+                            )}
+                            {order.attachments && order.attachments.length > 0 && (
+                                <div className="flex items-center gap-1 text-[10px] font-bold text-gray-500 mt-1">
+                                    <PaperClipIcon />
+                                    <span>{order.attachments.length} Foto/Video dilampirkan</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="mt-auto pt-3 border-t border-gray-100">
+                        <div className="flex justify-between items-center mb-3">
+                            <span className="text-xs text-gray-400 font-medium">Total Pendapatan</span>
+                            <span className="text-sm font-black text-green-600">
+                                Rp {new Intl.NumberFormat('id-ID').format(order.totalAmount)}
+                            </span>
+                        </div>
+                        <button
+                        onClick={() => handleAccept(order._id)}
+                        disabled={!! processingId}
+                        className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-all shadow-lg shadow-red-100 flex justify-center items-center gap-2"
+                        >
+                        {processingId === order._id ? 'Memproses...' : 'Terima Pesanan'}
+                        </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -473,11 +533,14 @@ export default function ProviderDashboardPage() {
                           {order.scheduledAt
                             ? new Date(order.scheduledAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
                             : 'ASAP'}
+                          <span className="text-gray-300">|</span>
+                          <ClockIcon />
+                          {order.scheduledTimeSlot ? order.scheduledTimeSlot.preferredStart : '09:00'}
                         </div>
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-black text-gray-900">Rp {new Intl.NumberFormat('id-ID').format(order.totalAmount)}</p>
-                        <span className="text-xs text-gray-400 font-mono">#{order._id.slice(-4)}</span>
+                        <span className="text-xs text-gray-400 font-mono">#{order.orderNumber || order._id.slice(-4)}</span>
                       </div>
                     </div>
                   </Link>
@@ -513,7 +576,7 @@ export default function ProviderDashboardPage() {
         </section>
       </div>
 
-      {/* MODAL KALENDER KETERSEDIAAN */}
+      {/* MODAL KALENDER KETERSEDIAAN (SAMA SEPERTI SEBELUMNYA) */}
       {isCalendarOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[85vh]">
@@ -526,8 +589,7 @@ export default function ProviderDashboardPage() {
                 onClick={() => setIsCalendarOpen(false)}
                 className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors"
               >
-                ✕
-              </button>
+                笨              </button>
             </div>
 
             <div className="p-4 flex items-center justify-between bg-gray-50">

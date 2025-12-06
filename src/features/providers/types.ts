@@ -75,7 +75,20 @@ export interface Provider {
   // Statistik
   totalCompletedOrders?: number;
 
-  // Jadwal Operasional
+  // [BARU] Lokasi Operasional (Provider Specific)
+  location?: {
+    type: string;
+    coordinates: number[]; // [lng, lat]
+    address?: string;
+  };
+
+  // [BARU] Jam Kerja
+  workingHours?: {
+    start: string;
+    end: string;
+  };
+
+  // Jadwal Operasional (Legacy/Opsional jika masih dipakai di tempat lain)
   schedule?: ScheduleItem[];
 
   // Jarak dari user (dihitung oleh backend)

@@ -47,22 +47,26 @@ export const updateProviderServices = async (services: Array<{ serviceId: string
   return response.data;
 };
 
-// Update Schedule (Jam Operasional)
-export interface ScheduleItem {
-  dayIndex: number;
-  dayName: string;
-  isOpen: boolean;
-  start: string;
-  end: string;
-}
-
-export const updateSchedule = async (schedule: ScheduleItem[]) => {
-  const response = await api.put<{ message: string; data: ScheduleItem[] }>('/providers/schedule', { schedule });
-  return response.data;
-};
-
 // Toggle Online/Offline Status
 export const toggleOnlineStatus = async (isOnline: boolean) => {
   const response = await api.put<{ message: string; data: { isOnline: boolean } }>('/providers/online-status', { isOnline });
+  return response.data;
+};
+
+// [BARU] Interface Payload Update Profile
+export interface UpdateProviderProfilePayload {
+  bio?: string;
+  address?: string;     // Alamat text operasional
+  latitude?: number;    // Koordinat Latitude
+  longitude?: number;   // Koordinat Longitude
+  workingHours?: {
+    start: string;
+    end: string;
+  };
+}
+
+// [BARU] Update Profil Operasional (Alamat, Bio, Jam Kerja)
+export const updateProviderProfile = async (payload: UpdateProviderProfilePayload) => {
+  const response = await api.put<{ message: string; data: Provider }>('/providers/profile', payload);
   return response.data;
 };

@@ -4,12 +4,28 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic'; // [BARU] Import Dynamic
+
+// API Imports
 import { fetchProfile, logout, updateProfile } from '@/features/auth/api';
-import { fetchMyProviderProfile, updateProviderServices, toggleOnlineStatus } from '@/features/providers/api';
+import { 
+  fetchMyProviderProfile, 
+  updateProviderServices, 
+  toggleOnlineStatus, 
+  updateProviderProfile // [BARU]
+} from '@/features/providers/api';
 import { fetchServices } from '@/features/services/api';
+
+// Types
 import { Service } from '@/features/services/types';
-import api from '@/lib/axios';
 import { User } from '@/features/auth/types';
+import api from '@/lib/axios';
+
+// [BARU] Import Komponen Peta secara Dynamic (Client Side Only)
+const LocationPicker = dynamic(() => import('@/components/LocationPicker'), {
+  ssr: false,
+  loading: () => <div className="h-[300px] w-full bg-gray-100 animate-pulse rounded-xl flex items-center justify-center text-gray-400">Memuat Peta...</div>
+});
 
 // --- ICONS ---
 const ChevronRightIcon = () => <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>;
@@ -21,6 +37,7 @@ const LogoutIcon = () => <svg className="w-5 h-5" fill="none" stroke="currentCol
 const BackIcon = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>;
 const PlusIcon = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>;
 const TrashIcon = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>;
+const MapPinIcon = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 
 interface ProviderService {
   _id: string;
@@ -40,14 +57,20 @@ export default function ProviderSettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  // View State (Untuk navigasi seperti halaman)
-  const [activeView, setActiveView] = useState<'main' | 'profile' | 'services' | 'account'>('main');
+  // View State: Ditambahkan 'location'
+  const [activeView, setActiveView] = useState<'main' | 'profile' | 'services' | 'account' | 'location'>('main');
 
-  // Profile State
+  // Profile State (User Info)
   const [user, setUser] = useState<User | null>(null);
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [bio, setBio] = useState('');
+
+  // [BARU] Location & Operational State (Provider Info)
+  const [address, setAddress] = useState('');
+  const [coordinates, setCoordinates] = useState<[number, number]>([-6.2088, 106.8456]); // [Lat, Lng]
+  const [workingStart, setWorkingStart] = useState('08:00');
+  const [workingEnd, setWorkingEnd] = useState('17:00');
 
   // Services State
   const [services, setServices] = useState<ProviderService[]>([]);
@@ -62,6 +85,7 @@ export default function ProviderSettingsPage() {
   useEffect(() => {
     const loadData = async () => {
       try {
+        // 1. Fetch User Profile
         const profileRes = await fetchProfile();
         const userData = profileRes.data.profile;
         setUser(userData);
@@ -69,15 +93,33 @@ export default function ProviderSettingsPage() {
         setPhoneNumber(userData.phoneNumber || '');
         setBio(userData.bio || '');
 
+        // 2. Fetch Provider Profile
         const providerRes = await fetchMyProviderProfile();
-        if (providerRes.data?.services) {
-          setServices(providerRes.data.services);
+        const p = providerRes.data;
+        
+        if (p?.services) setServices(p.services);
+        setIsOnline(p?.isOnline || false);
+
+        // [BARU] Load Operational Data
+        setAddress(p.location?.address || p.domicileAddress || '');
+        if (p.workingHours) {
+          setWorkingStart(p.workingHours.start || '08:00');
+          setWorkingEnd(p.workingHours.end || '17:00');
         }
         
-        setIsOnline(providerRes.data?.isOnline || false);
+        // Convert GeoJSON [Lng, Lat] to Leaflet [Lat, Lng]
+        if (p.location?.coordinates && p.location.coordinates.length === 2) {
+            const [lng, lat] = p.location.coordinates;
+            // Validasi sederhana agar tidak 0,0
+            if (lat !== 0 || lng !== 0) {
+                setCoordinates([lat, lng]);
+            }
+        }
 
+        // 3. Fetch All Services
         const servicesRes = await fetchServices();
         setAllServices(servicesRes.data || []);
+
       } catch (error) {
         console.error('Gagal memuat data:', error);
       } finally {
@@ -86,6 +128,8 @@ export default function ProviderSettingsPage() {
     };
     loadData();
   }, []);
+
+  // --- HANDLERS ---
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
@@ -99,6 +143,34 @@ export default function ProviderSettingsPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // [BARU] Handler Simpan Lokasi & Jam Operasional
+  const handleSaveLocation = async () => {
+    setIsSaving(true);
+    try {
+        await updateProviderProfile({
+            address,
+            latitude: coordinates[0],
+            longitude: coordinates[1],
+            workingHours: {
+                start: workingStart,
+                end: workingEnd
+            }
+        });
+        alert('Data operasional berhasil diperbarui!');
+        setActiveView('main');
+    } catch (error) {
+        console.error('Update Location Error:', error);
+        alert('Gagal memperbarui data operasional.');
+    } finally {
+        setIsSaving(false);
+    }
+  };
+
+  // Helper Peta
+  const handleLocationSelect = (lat: number, lng: number) => {
+    setCoordinates([lat, lng]);
   };
 
   const handleToggleService = async (serviceIndex: number) => {
@@ -124,7 +196,6 @@ export default function ProviderSettingsPage() {
   };
 
   const handleAddService = async () => {
-    // [VALIDASI] Harga minimal Rp 1.000
     if (!selectedNewService || newServicePrice < 1000) {
       alert('Pilih layanan dan masukkan harga yang valid (Min. Rp 1.000)');
       return;
@@ -195,10 +266,8 @@ export default function ProviderSettingsPage() {
 
   const handleSavePrice = async (serviceIndex: number) => {
     const price = services[serviceIndex].price;
-    // [VALIDASI] Harga minimal
     if (price < 1000) {
         alert('Harga minimal adalah Rp 1.000');
-        // Reset ke harga lama (reload data) atau biarkan user memperbaiki
         return; 
     }
 
@@ -259,7 +328,6 @@ export default function ProviderSettingsPage() {
       
       {/* 1. MAIN SETTINGS VIEW */}
       <div className={`${activeView === 'main' ? 'block' : 'hidden'}`}>
-        {/* Header */}
         <header className="bg-white shadow-sm sticky top-0 z-10 px-5 py-4 border-b border-gray-200">
           <h1 className="text-xl font-bold text-gray-900">Pengaturan</h1>
         </header>
@@ -304,6 +372,8 @@ export default function ProviderSettingsPage() {
 
           {/* Menu List */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            
+            {/* Menu: Edit Profil (User) */}
             <button 
               onClick={() => setActiveView('profile')}
               className="w-full flex items-center p-4 hover:bg-gray-50 transition-colors border-b border-gray-50"
@@ -318,6 +388,22 @@ export default function ProviderSettingsPage() {
               <ChevronRightIcon />
             </button>
 
+            {/* [BARU] Menu: Lokasi & Operasional */}
+            <button 
+              onClick={() => setActiveView('location')}
+              className="w-full flex items-center p-4 hover:bg-gray-50 transition-colors border-b border-gray-50"
+            >
+              <div className="w-10 h-10 rounded-full bg-green-50 text-green-600 flex items-center justify-center mr-4">
+                <MapPinIcon />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-bold text-gray-900">Alamat & Operasional</p>
+                <p className="text-xs text-gray-500">Atur lokasi peta dan jam kerja</p>
+              </div>
+              <ChevronRightIcon />
+            </button>
+
+            {/* Menu: Kelola Layanan */}
             <button 
               onClick={() => setActiveView('services')}
               className="w-full flex items-center p-4 hover:bg-gray-50 transition-colors border-b border-gray-50"
@@ -332,6 +418,7 @@ export default function ProviderSettingsPage() {
               <ChevronRightIcon />
             </button>
 
+            {/* Menu: Akun */}
             <button 
               onClick={() => setActiveView('account')}
               className="w-full flex items-center p-4 hover:bg-gray-50 transition-colors border-b border-gray-50"
@@ -352,7 +439,7 @@ export default function ProviderSettingsPage() {
               rel="noopener noreferrer"
               className="w-full flex items-center p-4 hover:bg-gray-50 transition-colors"
             >
-              <div className="w-10 h-10 rounded-full bg-green-50 text-green-600 flex items-center justify-center mr-4">
+              <div className="w-10 h-10 rounded-full bg-gray-50 text-gray-600 flex items-center justify-center mr-4">
                 <ExternalLinkIcon />
               </div>
               <div className="flex-1 text-left">
@@ -399,9 +486,6 @@ export default function ProviderSettingsPage() {
                       className="object-cover"
                     />
                   </div>
-                  <button className="absolute bottom-0 right-0 bg-gray-900 text-white p-2 rounded-full border-2 border-white shadow-sm">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                  </button>
                 </div>
               </div>
 
@@ -411,7 +495,7 @@ export default function ProviderSettingsPage() {
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none focus:bg-white transition-all"
+                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none"
                 />
               </div>
 
@@ -422,7 +506,7 @@ export default function ProviderSettingsPage() {
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
                   placeholder="08xxxxxxxxxx"
-                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none focus:bg-white transition-all"
+                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none"
                 />
               </div>
 
@@ -432,8 +516,8 @@ export default function ProviderSettingsPage() {
                   rows={5}
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
-                  placeholder="Contoh: Ahli perbaikan AC dengan pengalaman 5 tahun..."
-                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:ring-2 focus:ring-red-500/20 focus:border-red-500 resize-none outline-none focus:bg-white transition-all"
+                  placeholder="Ceritakan pengalaman Anda..."
+                  className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 resize-none outline-none"
                 />
               </div>
             </div>
@@ -443,7 +527,7 @@ export default function ProviderSettingsPage() {
             <button
               onClick={handleSaveProfile}
               disabled={isSaving}
-              className="w-full py-3.5 bg-red-600 text-white font-bold rounded-xl shadow-lg shadow-red-100 hover:bg-red-700 transition-all disabled:opacity-70 disabled:cursor-not-allowed max-w-md mx-auto block"
+              className="w-full py-3.5 bg-red-600 text-white font-bold rounded-xl shadow-lg hover:bg-red-700 transition-all disabled:opacity-70"
             >
               {isSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
             </button>
@@ -451,7 +535,91 @@ export default function ProviderSettingsPage() {
         </div>
       )}
 
-      {/* 3. FULL SCREEN MODAL: SERVICES */}
+      {/* [BARU] 3. FULL SCREEN MODAL: LOCATION & OPERATIONS */}
+      {activeView === 'location' && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col animate-in slide-in-from-right duration-300">
+           <header className="px-4 py-4 border-b border-gray-200 flex items-center gap-3 bg-white sticky top-0 z-10">
+            <button onClick={() => setActiveView('main')} className="p-2 -ml-2 hover:bg-gray-100 rounded-full text-gray-600">
+              <BackIcon />
+            </button>
+            <h1 className="text-lg font-bold text-gray-900">Alamat & Operasional</h1>
+          </header>
+
+          <div className="flex-1 overflow-y-auto p-5 bg-gray-50">
+            <div className="max-w-md mx-auto space-y-6">
+                
+                {/* Section Peta */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+                    <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                        <MapPinIcon /> Lokasi Peta
+                    </h3>
+                    <div className="text-xs text-gray-500 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                        Geser marker merah ke lokasi tepat tempat usaha/basecamp Anda agar customer bisa menemukan Anda.
+                    </div>
+                    {/* Komponen Peta */}
+                    <LocationPicker 
+                        initialPosition={coordinates} 
+                        onLocationSelect={handleLocationSelect} 
+                    />
+                    <div className="flex gap-4 text-[10px] text-gray-400 font-mono">
+                        <span>Lat: {coordinates[0].toFixed(6)}</span>
+                        <span>Lng: {coordinates[1].toFixed(6)}</span>
+                    </div>
+                </div>
+
+                {/* Section Alamat Text */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+                    <h3 className="font-bold text-gray-900 text-sm">Detail Alamat</h3>
+                    <textarea
+                        rows={3}
+                        value={address}
+                        onChange={(e) => setAddress(e.target.value)}
+                        placeholder="Contoh: Jl. Sudirman No. 10, RT 01/02, Depan Indomaret..."
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none resize-none"
+                    />
+                </div>
+
+                {/* Section Jam Kerja */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+                    <h3 className="font-bold text-gray-900 text-sm">Jam Operasional</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Buka</label>
+                            <input
+                                type="time"
+                                value={workingStart}
+                                onChange={(e) => setWorkingStart(e.target.value)}
+                                className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Tutup</label>
+                            <input
+                                type="time"
+                                value={workingEnd}
+                                onChange={(e) => setWorkingEnd(e.target.value)}
+                                className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-gray-100 bg-white">
+            <button
+              onClick={handleSaveLocation}
+              disabled={isSaving}
+              className="w-full py-3.5 bg-red-600 text-white font-bold rounded-xl shadow-lg hover:bg-red-700 transition-all disabled:opacity-70"
+            >
+              {isSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4. FULL SCREEN MODAL: SERVICES (TIDAK BERUBAH) */}
       {activeView === 'services' && (
         <div className="fixed inset-0 z-50 bg-white flex flex-col animate-in slide-in-from-right duration-300">
           <header className="px-4 py-4 border-b border-gray-200 flex items-center justify-between bg-white sticky top-0 z-10">
@@ -509,7 +677,7 @@ export default function ProviderSettingsPage() {
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">Rp</span>
                         <input
                           type="number"
-                          min="1000" // [VALIDASI] HTML5 Constraint
+                          min="1000"
                           value={service.price}
                           onChange={(e) => handleUpdatePrice(idx, parseInt(e.target.value) || 0)}
                           onBlur={() => handleSavePrice(idx)}
@@ -531,7 +699,7 @@ export default function ProviderSettingsPage() {
         </div>
       )}
 
-      {/* 4. FULL SCREEN MODAL: ACCOUNT SETTINGS */}
+      {/* 5. FULL SCREEN MODAL: ACCOUNT SETTINGS */}
       {activeView === 'account' && (
         <div className="fixed inset-0 z-50 bg-white flex flex-col animate-in slide-in-from-right duration-300">
           <header className="px-4 py-4 border-b border-gray-200 flex items-center gap-3 bg-white sticky top-0 z-10">
@@ -557,7 +725,7 @@ export default function ProviderSettingsPage() {
         </div>
       )}
 
-      {/* MODAL: ADD NEW SERVICE (Overlay on top of Services view) */}
+      {/* MODAL: ADD NEW SERVICE */}
       {showAddServiceModal && (
         <div className="fixed inset-0 bg-black/60 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
@@ -611,7 +779,7 @@ export default function ProviderSettingsPage() {
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">Rp</span>
                       <input
                         type="number"
-                        min="1000" // [VALIDASI]
+                        min="1000"
                         value={newServicePrice}
                         onChange={(e) => setNewServicePrice(parseInt(e.target.value) || 0)}
                         className="w-full pl-12 pr-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none font-bold"
