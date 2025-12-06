@@ -3,6 +3,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { useRouter } from 'next/navigation'; // Tambahkan router untuk redirect jika perlu
 
 interface SocketContextType {
   socket: Socket | null;
@@ -23,58 +24,68 @@ interface SocketProviderProps {
 export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
-    // Kita ambil token dari localStorage jika ada (untuk handshake auth)
+    // Ambil token
     const token = typeof window !== 'undefined' ? localStorage.getItem('posko_token') : null;
 
     if (!token) {
-        // Jika tidak ada token, jangan connect socket (hemat resource)
         return;
     }
 
-    // [PERBAIKAN] Logic URL: Hapus suffix '/api' dari URL API agar tidak dianggap sebagai namespace
-    // Default port backend adalah 4000 (sesuai .env backend), bukan 5000
+    // Parsing URL API
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    const socketUrl = apiBaseUrl.replace(/\/api\/?$/, ''); // Menghapus '/api' di akhir string
+    let socketUrl = apiBaseUrl;
+    try {
+        const urlObj = new URL(apiBaseUrl);
+        socketUrl = urlObj.origin;
+    } catch (error) {
+        console.error('[Socket] Invalid API URL format, using fallback.', error);
+    }
 
-    console.log('Connecting to Socket URL:', socketUrl);
-
-    // Inisialisasi Socket Instance (Singleton)
     const socketInstance = io(socketUrl, {
       auth: {
         token: token, 
       },
-      // Opsi tambahan untuk kestabilan
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      withCredentials: true, // Kirim cookies juga jika diperlukan
-      transports: ['websocket', 'polling'], // Prioritaskan websocket
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      withCredentials: true, 
+      transports: ['websocket', 'polling'], 
     });
 
     socketInstance.on('connect', () => {
-      console.log('Socket connected:', socketInstance.id);
+      console.log('✅ Socket connected:', socketInstance.id);
       setIsConnected(true);
     });
 
     socketInstance.on('disconnect', () => {
-      console.log('Socket disconnected');
+      console.log('❌ Socket disconnected');
       setIsConnected(false);
     });
 
+    // [FIX] Handle Authentication Error
     socketInstance.on('connect_error', (err) => {
-      // Error ini yang sebelumnya muncul "Invalid namespace"
-      console.error('Socket connection error:', err.message);
+      console.error('⚠️ Socket connection error:', err.message);
+      
+      // Jika server menolak karena Auth Error, jangan paksa reconnect terus-menerus
+      if (err.message === 'Authentication error') {
+        console.warn('⛔ Stopping socket reconnection due to auth failure.');
+        socketInstance.disconnect(); // Matikan koneksi
+        
+        // Opsional: Jika token invalid, bisa kita hapus agar user login ulang
+        // localStorage.removeItem('posko_token');
+        // router.push('/login'); 
+      }
     });
 
     setSocket(socketInstance);
 
-    // Cleanup saat unmount (logout atau tutup tab)
     return () => {
       socketInstance.disconnect();
     };
-  }, []);
+  }, [router]); // Tambahkan dependency
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>

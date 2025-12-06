@@ -1,7 +1,7 @@
 // src/components/JobMap.tsx
 'use client';
 
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { useEffect } from 'react';
@@ -18,7 +18,17 @@ const icon = L.icon({
 });
 
 interface JobMapProps {
-  coordinates: [number, number]; // [Longitude, Latitude] dari MongoDB biasanya, tapi Leaflet butuh [Lat, Lng]
+  coordinates: [number, number]; // [Longitude, Latitude] dari MongoDB
+}
+
+// [FIX] Komponen Helper untuk mengubah view peta saat props coordinates berubah
+// React-Leaflet MapContainer bersifat immutable pada props center setelah render pertama
+function RecenterAutomatically({ lat, lng }: { lat: number; lng: number }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView([lat, lng]);
+  }, [lat, lng, map]);
+  return null;
 }
 
 export default function JobMap({ coordinates }: JobMapProps) {
@@ -38,6 +48,10 @@ export default function JobMap({ coordinates }: JobMapProps) {
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        
+        {/* Helper untuk memastikan peta selalu update posisi jika data berubah */}
+        <RecenterAutomatically lat={position[0]} lng={position[1]} />
+
         <Marker position={position} icon={icon}>
           <Popup>
             Lokasi Pengerjaan
