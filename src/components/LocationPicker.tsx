@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -23,38 +23,30 @@ interface LocationPickerProps {
   onLocationSelect: (lat: number, lng: number) => void;
 }
 
-// Komponen Marker yang bisa digeser
-function DraggableMarker({ position, onDragEnd }: { position: L.LatLngExpression, onDragEnd: (lat: number, lng: number) => void }) {
-  const markerRef = useRef<L.Marker>(null);
+// Komponen Marker yang bereaksi terhadap Tap/Klik pada Peta
+function MapEventsHandler({ onLocationSelect, position }: { onLocationSelect: (lat: number, lng: number) => void, position: [number, number] }) {
+  const map = useMapEvents({
+    click(e) {
+      // Saat peta diklik/tap
+      onLocationSelect(e.latlng.lat, e.latlng.lng);
+      map.flyTo(e.latlng, map.getZoom()); // Efek terbang halus
+    },
+  });
 
-  const eventHandlers = useMemo(
-    () => ({
-      dragend() {
-        const marker = markerRef.current;
-        if (marker != null) {
-          const { lat, lng } = marker.getLatLng();
-          onDragEnd(lat, lng);
-        }
-      },
-    }),
-    [onDragEnd]
-  );
+  // Update posisi peta jika props berubah (misal data baru diload)
+  useEffect(() => {
+    if (position && position[0] !== 0) {
+       map.flyTo(position, map.getZoom());
+    }
+  }, [position, map]);
 
-  return (
-    <Marker
-      draggable={true}
-      eventHandlers={eventHandlers}
-      position={position}
-      ref={markerRef}
-    >
-      <Popup minWidth={90}>
-        <span>Geser marker ini ke lokasi operasional Anda</span>
-      </Popup>
+  return position ? (
+    <Marker position={position}>
+      <Popup>Lokasi Operasional Anda</Popup>
     </Marker>
-  );
+  ) : null;
 }
 
-// Komponen utama
 const LocationPicker = ({ initialPosition, onLocationSelect }: LocationPickerProps) => {
   // Default ke Jakarta jika [0,0] atau null
   const defaultCenter: [number, number] = 
@@ -71,7 +63,7 @@ const LocationPicker = ({ initialPosition, onLocationSelect }: LocationPickerPro
     }
   }, [initialPosition]);
 
-  const handleDragEnd = (lat: number, lng: number) => {
+  const handleSelect = (lat: number, lng: number) => {
     setPosition([lat, lng]);
     onLocationSelect(lat, lng);
   };
@@ -80,14 +72,14 @@ const LocationPicker = ({ initialPosition, onLocationSelect }: LocationPickerPro
     <div className="h-[300px] w-full rounded-lg overflow-hidden border border-gray-300 relative z-0">
       <MapContainer 
         center={defaultCenter} 
-        zoom={13} 
+        zoom={15} 
         style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <DraggableMarker position={position} onDragEnd={handleDragEnd} />
+        <MapEventsHandler onLocationSelect={handleSelect} position={position} />
       </MapContainer>
     </div>
   );

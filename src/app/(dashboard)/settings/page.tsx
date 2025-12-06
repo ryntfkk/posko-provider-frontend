@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import dynamic from 'next/dynamic'; // [BARU] Import Dynamic
+import dynamic from 'next/dynamic';
 
 // API Imports
 import { fetchProfile, logout, updateProfile } from '@/features/auth/api';
@@ -12,7 +12,7 @@ import {
   fetchMyProviderProfile, 
   updateProviderServices, 
   toggleOnlineStatus, 
-  updateProviderProfile // [BARU]
+  updateProviderProfile 
 } from '@/features/providers/api';
 import { fetchServices } from '@/features/services/api';
 
@@ -21,7 +21,7 @@ import { Service } from '@/features/services/types';
 import { User } from '@/features/auth/types';
 import api from '@/lib/axios';
 
-// [BARU] Import Komponen Peta secara Dynamic (Client Side Only)
+// Import Komponen Peta secara Dynamic (Client Side Only)
 const LocationPicker = dynamic(() => import('@/components/LocationPicker'), {
   ssr: false,
   loading: () => <div className="h-[300px] w-full bg-gray-100 animate-pulse rounded-xl flex items-center justify-center text-gray-400">Memuat Peta...</div>
@@ -52,12 +52,18 @@ interface ProviderService {
   isActive: boolean;
 }
 
+// [BARU] Interface untuk Wilayah
+interface Region { 
+  id: string; 
+  name: string; 
+}
+
 export default function ProviderSettingsPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  // View State: Ditambahkan 'location'
+  // View State
   const [activeView, setActiveView] = useState<'main' | 'profile' | 'services' | 'account' | 'location'>('main');
 
   // Profile State (User Info)
@@ -66,8 +72,34 @@ export default function ProviderSettingsPage() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [bio, setBio] = useState('');
 
-  // [BARU] Location & Operational State (Provider Info)
-  const [address, setAddress] = useState('');
+  // --- Location & Operational State ---
+  // [BARU] State untuk Data Dropdown
+  const [provinces, setProvinces] = useState<Region[]>([]);
+  const [cities, setCities] = useState<Region[]>([]);
+  const [districts, setDistricts] = useState<Region[]>([]);
+  const [villages, setVillages] = useState<Region[]>([]);
+
+  // [BARU] State untuk Loading API Wilayah
+  const [wilayahLoading, setWilayahLoading] = useState({
+    cities: false,
+    districts: false,
+    villages: false
+  });
+
+  // [BARU] State untuk ID Wilayah Terpilih (untuk trigger fetch anak)
+  const [selectedProvId, setSelectedProvId] = useState('');
+  const [selectedCityId, setSelectedCityId] = useState('');
+  const [selectedDistrictId, setSelectedDistrictId] = useState('');
+  const [selectedVillageId, setSelectedVillageId] = useState('');
+
+  // State Nilai Alamat Text (yang akan dikirim ke backend)
+  const [fullAddress, setFullAddress] = useState('');
+  const [provinceName, setProvinceName] = useState('');
+  const [cityName, setCityName] = useState('');
+  const [districtName, setDistrictName] = useState('');
+  const [villageName, setVillageName] = useState('');
+  const [postalCode, setPostalCode] = useState('');
+  
   const [coordinates, setCoordinates] = useState<[number, number]>([-6.2088, 106.8456]); // [Lat, Lng]
   const [workingStart, setWorkingStart] = useState('08:00');
   const [workingEnd, setWorkingEnd] = useState('17:00');
@@ -85,6 +117,12 @@ export default function ProviderSettingsPage() {
   useEffect(() => {
     const loadData = async () => {
       try {
+        // [BARU] 0. Load Provinsi
+        const provRes = await fetch('https://www.emsifa.com/api-wilayah-indonesia/api/provinces.json');
+        if (provRes.ok) {
+            setProvinces(await provRes.json());
+        }
+
         // 1. Fetch User Profile
         const profileRes = await fetchProfile();
         const userData = profileRes.data.profile;
@@ -100,8 +138,20 @@ export default function ProviderSettingsPage() {
         if (p?.services) setServices(p.services);
         setIsOnline(p?.isOnline || false);
 
-        // [BARU] Load Operational Data
-        setAddress(p.location?.address || p.domicileAddress || '');
+        // [UPDATE] Load Operational Data (Mendukung struktur baru)
+        if (p.location?.address) {
+            if (typeof p.location.address === 'object') {
+                setFullAddress(p.location.address.fullAddress || '');
+                setProvinceName(p.location.address.province || '');
+                setCityName(p.location.address.city || '');
+                setDistrictName(p.location.address.district || '');
+                setVillageName(p.location.address.village || ''); // Jika ada di backend
+                setPostalCode(p.location.address.postalCode || '');
+            } else if (typeof p.location.address === 'string') {
+                setFullAddress(p.location.address);
+            }
+        }
+
         if (p.workingHours) {
           setWorkingStart(p.workingHours.start || '08:00');
           setWorkingEnd(p.workingHours.end || '17:00');
@@ -131,6 +181,64 @@ export default function ProviderSettingsPage() {
 
   // --- HANDLERS ---
 
+  // [BARU] Handler Perubahan Wilayah (Dropdown)
+  const handleRegionChange = (type: 'province' | 'city' | 'district' | 'village', e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    const index = e.target.selectedIndex;
+    const text = index > 0 ? e.target.options[index].text : '';
+
+    if (type === 'province') {
+      setSelectedProvId(id);
+      setSelectedCityId(''); setSelectedDistrictId(''); setSelectedVillageId('');
+      setCities([]); setDistricts([]); setVillages([]);
+      
+      setProvinceName(text);
+      setCityName(''); setDistrictName(''); setVillageName('');
+
+      if(id) {
+        setWilayahLoading(prev => ({ ...prev, cities: true }));
+        fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/regencies/${id}.json`)
+          .then(r => r.json()).then(setCities)
+          .finally(() => setWilayahLoading(prev => ({ ...prev, cities: false })));
+      }
+    } 
+    else if (type === 'city') {
+      setSelectedCityId(id);
+      setSelectedDistrictId(''); setSelectedVillageId('');
+      setDistricts([]); setVillages([]);
+      
+      setCityName(text);
+      setDistrictName(''); setVillageName('');
+
+      if(id) {
+        setWilayahLoading(prev => ({ ...prev, districts: true }));
+        fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/districts/${id}.json`)
+          .then(r => r.json()).then(setDistricts)
+          .finally(() => setWilayahLoading(prev => ({ ...prev, districts: false })));
+      }
+    } 
+    else if (type === 'district') {
+      setSelectedDistrictId(id);
+      setSelectedVillageId('');
+      setVillages([]);
+      
+      setDistrictName(text);
+      setVillageName('');
+
+      if(id) {
+        setWilayahLoading(prev => ({ ...prev, villages: true }));
+        fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/villages/${id}.json`)
+          .then(r => r.json()).then(setVillages)
+          .finally(() => setWilayahLoading(prev => ({ ...prev, villages: false })));
+      }
+    }
+    else if (type === 'village') {
+      setSelectedVillageId(id);
+      setVillageName(text);
+    }
+  };
+
+
   const handleSaveProfile = async () => {
     setIsSaving(true);
     try {
@@ -145,12 +253,23 @@ export default function ProviderSettingsPage() {
     }
   };
 
-  // [BARU] Handler Simpan Lokasi & Jam Operasional
+  // Handler Simpan Lokasi & Jam Operasional
   const handleSaveLocation = async () => {
+    // Validasi sederhana
+    if (!provinceName || !cityName) {
+        alert("Mohon lengkapi Provinsi dan Kota.");
+        return;
+    }
+
     setIsSaving(true);
     try {
         await updateProviderProfile({
-            address,
+            fullAddress,
+            province: provinceName, // Kirim ke backend (meski controller blm tentu simpan, kita kirim dulu)
+            city: cityName,
+            district: districtName,
+            // village: villageName, // Opsi jika backend update support village
+            postalCode,
             latitude: coordinates[0],
             longitude: coordinates[1],
             workingHours: {
@@ -388,7 +507,7 @@ export default function ProviderSettingsPage() {
               <ChevronRightIcon />
             </button>
 
-            {/* [BARU] Menu: Lokasi & Operasional */}
+            {/* Menu: Lokasi & Operasional */}
             <button 
               onClick={() => setActiveView('location')}
               className="w-full flex items-center p-4 hover:bg-gray-50 transition-colors border-b border-gray-50"
@@ -535,7 +654,7 @@ export default function ProviderSettingsPage() {
         </div>
       )}
 
-      {/* [BARU] 3. FULL SCREEN MODAL: LOCATION & OPERATIONS */}
+      {/* 3. FULL SCREEN MODAL: LOCATION & OPERATIONS */}
       {activeView === 'location' && (
         <div className="fixed inset-0 z-50 bg-white flex flex-col animate-in slide-in-from-right duration-300">
            <header className="px-4 py-4 border-b border-gray-200 flex items-center gap-3 bg-white sticky top-0 z-10">
@@ -554,7 +673,7 @@ export default function ProviderSettingsPage() {
                         <MapPinIcon /> Lokasi Peta
                     </h3>
                     <div className="text-xs text-gray-500 bg-blue-50 p-3 rounded-lg border border-blue-100">
-                        Geser marker merah ke lokasi tepat tempat usaha/basecamp Anda agar customer bisa menemukan Anda.
+                        Klik / Tap pada peta untuk menentukan lokasi tepat tempat usaha/basecamp Anda.
                     </div>
                     {/* Komponen Peta */}
                     <LocationPicker 
@@ -567,16 +686,108 @@ export default function ProviderSettingsPage() {
                     </div>
                 </div>
 
-                {/* Section Alamat Text */}
-                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+                {/* Section Alamat Detail (Dropdowns) */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
                     <h3 className="font-bold text-gray-900 text-sm">Detail Alamat</h3>
-                    <textarea
-                        rows={3}
-                        value={address}
-                        onChange={(e) => setAddress(e.target.value)}
-                        placeholder="Contoh: Jl. Sudirman No. 10, RT 01/02, Depan Indomaret..."
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none resize-none"
-                    />
+                    
+                    {/* Provinsi */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Provinsi</label>
+                        <div className="relative">
+                            <select 
+                                className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none appearance-none"
+                                value={selectedProvId}
+                                onChange={(e) => handleRegionChange('province', e)}
+                            >
+                                <option value="">{provinceName || "Pilih Provinsi..."}</option>
+                                {provinces.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                            </select>
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</div>
+                        </div>
+                    </div>
+
+                    {/* Kota */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Kota / Kabupaten</label>
+                        <div className="relative">
+                            <select 
+                                className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none appearance-none disabled:bg-gray-100 disabled:text-gray-400"
+                                value={selectedCityId}
+                                onChange={(e) => handleRegionChange('city', e)}
+                                disabled={!selectedProvId && !provinceName}
+                            >
+                                <option value="">{wilayahLoading.cities ? "Memuat..." : (cityName || "Pilih Kota...")}</option>
+                                {cities.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</div>
+                        </div>
+                    </div>
+
+                    {/* Grid Kecamatan & Kelurahan */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Kecamatan</label>
+                            <div className="relative">
+                                <select 
+                                    className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none appearance-none disabled:bg-gray-100 disabled:text-gray-400"
+                                    value={selectedDistrictId}
+                                    onChange={(e) => handleRegionChange('district', e)}
+                                    disabled={!selectedCityId && !cityName}
+                                >
+                                    <option value="">{wilayahLoading.districts ? "Memuat..." : (districtName || "Pilih...")}</option>
+                                    {districts.map(d => (
+                                        <option key={d.id} value={d.id}>{d.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</div>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Kelurahan</label>
+                            <div className="relative">
+                                <select 
+                                    className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none appearance-none disabled:bg-gray-100 disabled:text-gray-400"
+                                    value={selectedVillageId}
+                                    onChange={(e) => handleRegionChange('village', e)}
+                                    disabled={!selectedDistrictId && !districtName}
+                                >
+                                    <option value="">{wilayahLoading.villages ? "Memuat..." : (villageName || "Pilih...")}</option>
+                                    {villages.map(v => (
+                                        <option key={v.id} value={v.id}>{v.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Kode Pos */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Kode Pos</label>
+                        <input
+                            type="text"
+                            value={postalCode}
+                            onChange={(e) => setPostalCode(e.target.value)}
+                            placeholder="12810"
+                            className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none"
+                        />
+                    </div>
+
+                    {/* Alamat Lengkap */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Detail Jalan / Patokan</label>
+                        <textarea
+                            rows={2}
+                            value={fullAddress}
+                            onChange={(e) => setFullAddress(e.target.value)}
+                            placeholder="Jl. Sudirman No. 10, RT 01/02..."
+                            className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:border-red-500 outline-none resize-none"
+                        />
+                    </div>
                 </div>
 
                 {/* Section Jam Kerja */}
@@ -761,7 +972,7 @@ export default function ProviderSettingsPage() {
                         ))}
                       </select>
                       <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7 7" /></svg>
                       </div>
                     </div>
                   </div>
