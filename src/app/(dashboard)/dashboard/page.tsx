@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { fetchIncomingOrders, acceptOrder, fetchMyOrders } from '@/features/orders/api';
+import { fetchIncomingOrders, acceptOrder, fetchMyOrders, rejectOrder } from '@/features/orders/api'; // [UPDATE] Import rejectOrder
 import { Order } from '@/features/orders/types';
 import { fetchMyProviderProfile, updateAvailability } from '@/features/providers/api';
 import { fetchProfile } from '@/features/auth/api';
@@ -33,7 +33,7 @@ const LocationIcon = () => (
 
 const CalendarIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2z" />
   </svg>
 );
 
@@ -186,6 +186,24 @@ export default function ProviderDashboardPage() {
       setActiveTab('active');
     } catch (error: any) {
       alert(error.response?.data?.message || 'Gagal terima order');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  // [BARU] Handler Tolak Order
+  const handleReject = async (orderId: string) => {
+    if (! confirm('Apakah Anda yakin ingin menolak/melewati pesanan ini? Pesanan akan hilang dari daftar Anda.')) return;
+    
+    setProcessingId(orderId); // Kunci UI sementara
+    try {
+      await rejectOrder(orderId);
+      
+      // Update UI lokal langsung (Optimistic update)
+      setIncomingOrders(prev => prev.filter(o => o._id !== orderId));
+      
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Gagal menolak order');
     } finally {
       setProcessingId(null);
     }
@@ -498,13 +516,24 @@ export default function ProviderDashboardPage() {
                                 Rp {new Intl.NumberFormat('id-ID').format(order.totalAmount)}
                             </span>
                         </div>
-                        <button
-                        onClick={() => handleAccept(order._id)}
-                        disabled={!! processingId}
-                        className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-all shadow-lg shadow-red-100 flex justify-center items-center gap-2"
-                        >
-                        {processingId === order._id ? 'Memproses...' : 'Terima Pesanan'}
-                        </button>
+                        
+                        {/* [BARU] Tombol Aksi: Terima & Tolak */}
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => handleReject(order._id)}
+                                disabled={!! processingId}
+                                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 hover:text-red-600 disabled:opacity-50 transition-all"
+                            >
+                                Tolak
+                            </button>
+                            <button
+                                onClick={() => handleAccept(order._id)}
+                                disabled={!! processingId}
+                                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-all shadow-lg shadow-red-100"
+                            >
+                                {processingId === order._id ? '...' : 'Terima'}
+                            </button>
+                        </div>
                     </div>
                   </div>
                 ))

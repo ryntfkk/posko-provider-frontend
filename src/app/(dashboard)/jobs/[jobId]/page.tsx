@@ -7,7 +7,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import { io, Socket } from 'socket.io-client';
-import { fetchOrderById, updateOrderStatus, uploadCompletionEvidence, requestAdditionalFee } from '@/features/orders/api';
+import { 
+  fetchOrderById, 
+  updateOrderStatus, 
+  uploadCompletionEvidence, 
+  requestAdditionalFee,
+  voidAdditionalFee // [BARU] Import function
+} from '@/features/orders/api';
 import { fetchProfile } from '@/features/auth/api';
 import { Order } from '@/features/orders/types';
 import { User } from '@/features/auth/types';
@@ -49,12 +55,6 @@ const ChatIcon = () => (
     </svg>
 );
 
-const InfoIcon = () => (
-  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-  </svg>
-);
-
 const CheckIcon = () => (
   <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -68,12 +68,6 @@ const CameraIcon = () => (
   </svg>
 );
 
-const PlusIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-  </svg>
-);
-
 const ReceiptIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 4h6m-6 4h6M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -82,7 +76,13 @@ const ReceiptIcon = () => (
 
 const WalletIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-6 3h6m6-9V6a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2h14a2 2 0 002-2v-4" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-6 3h6m6-9V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2v-4" />
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
   </svg>
 );
 
@@ -95,7 +95,6 @@ export default function JobDetailPage() {
 
   const [order, setOrder] = useState<Order | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  // [REMOVED] const [platformFeePercent, setPlatformFeePercent] = useState<number>(12);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -107,6 +106,9 @@ export default function JobDetailPage() {
   const [feeDescription, setFeeDescription] = useState('');
   const [feeAmount, setFeeAmount] = useState('');
   const [isSubmittingFee, setIsSubmittingFee] = useState(false);
+  
+  // [BARU] State untuk loading saat void fee
+  const [voidingFeeId, setVoidingFeeId] = useState<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -133,8 +135,6 @@ export default function JobDetailPage() {
         await refreshOrderData();
         const profileRes = await fetchProfile();
         setUser(profileRes.data.profile);
-        
-        // [REMOVED] Fetch Global Config
       } catch (err) {
         console.error("Error init data:", err);
       } finally {
@@ -220,7 +220,7 @@ export default function JobDetailPage() {
       estimatedNetEarnings,
       platformFeePercent
     };
-  }, [order]); // [FIX] Hapus dependency platformFeePercent
+  }, [order]);
 
   const handleStatusUpdate = async (newStatus: string) => {
     if (newStatus === 'waiting_approval') {
@@ -234,7 +234,7 @@ export default function JobDetailPage() {
       );
 
       if (hasUnpaidFees) {
-        alert('Ada biaya tambahan yang belum disetujui atau dibayar oleh pelanggan. Mohon tunggu penyelesaian pembayaran.');
+        alert('Ada biaya tambahan yang belum disetujui atau dibayar oleh pelanggan. Mohon tunggu pelanggan atau batalkan biaya tersebut.');
         return;
       }
     }
@@ -298,6 +298,21 @@ export default function JobDetailPage() {
       alert(error.response?.data?.message || 'Gagal mengajukan biaya tambahan.');
     } finally {
       setIsSubmittingFee(false);
+    }
+  };
+
+  // [BARU] Handler Void Fee
+  const handleVoidFee = async (feeId: string) => {
+    if (! confirm('Batalkan pengajuan biaya ini?')) return;
+    
+    setVoidingFeeId(feeId);
+    try {
+        const response = await voidAdditionalFee(jobId, feeId);
+        setOrder(response.data);
+    } catch (error: any) {
+        alert(error.response?.data?.message || 'Gagal membatalkan biaya.');
+    } finally {
+        setVoidingFeeId(null);
     }
   };
 
@@ -404,7 +419,7 @@ export default function JobDetailPage() {
                   <span className="font-mono font-medium">{order.customerContact?.phone || (order.userId as any)?.phoneNumber || '-'}</span>
                 </div>
                 
-                {/* TOMBOL CHAT (BARU) */}
+                {/* TOMBOL CHAT */}
                 <button 
                   onClick={handleChatWithCustomer}
                   disabled={isCreatingChat}
@@ -566,26 +581,45 @@ export default function JobDetailPage() {
                 {order.additionalFees.map((fee, idx) => (
                   <div key={idx} className="flex justify-between items-center text-sm bg-gray-50 p-2.5 rounded-lg border border-gray-100">
                     <div className="flex flex-col">
-                      <span className="text-gray-800 font-medium">{fee.description}</span>
+                      <span className={`text-gray-800 font-medium ${fee.status === 'voided' ? 'line-through text-gray-400' : ''}`}>{fee.description}</span>
                       <span className={`text-[10px] font-bold uppercase ${
                         fee.status === 'paid' ? 'text-green-600' :
                         fee.status === 'approved_unpaid' ? 'text-blue-600' :
-                        fee.status === 'rejected' ? 'text-red-500 line-through' :
+                        fee.status === 'rejected' || fee.status === 'voided' ? 'text-gray-400' :
                         'text-yellow-600'
                       }`}>
                         {fee.status.replace(/_/g, ' ')}
                       </span>
                     </div>
-                    <span className={`font-bold ${fee.status === 'rejected' ? 'text-gray-300 line-through' : 'text-gray-900'}`}>
-                      Rp {new Intl.NumberFormat('id-ID').format(fee.amount)}
-                    </span>
+                    
+                    <div className="flex items-center gap-3">
+                        <span className={`font-bold ${fee.status === 'rejected' || fee.status === 'voided' ? 'text-gray-300 line-through' : 'text-gray-900'}`}>
+                        Rp {new Intl.NumberFormat('id-ID').format(fee.amount)}
+                        </span>
+                        
+                        {/* [BARU] Tombol Hapus/Batal untuk Pending Fee */}
+                        {isWorking && fee.status === 'pending_approval' && (
+                            <button
+                                onClick={() => handleVoidFee(fee._id!)} // fee._id should exist
+                                disabled={!!voidingFeeId}
+                                className="text-red-400 hover:text-red-600 p-1 rounded-full hover:bg-red-50 transition-colors"
+                                title="Batalkan Biaya Ini"
+                            >
+                                {voidingFeeId === fee._id ? (
+                                    <span className="animate-spin h-3 w-3 block border-2 border-red-200 border-t-red-600 rounded-full"></span>
+                                ) : (
+                                    <TrashIcon />
+                                )}
+                            </button>
+                        )}
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* 3. SUBTOTAL LAYANAN (JASA + TAMBAHAN) - REQUESTED FEATURE */}
+          {/* 3. SUBTOTAL LAYANAN (JASA + TAMBAHAN) */}
           <div className="flex justify-between items-center pt-4 border-t-2 border-gray-100 bg-blue-50/50 p-3 rounded-lg -mx-2">
             <span className="text-sm font-bold text-blue-800 uppercase">Subtotal Layanan (1 + 2)</span>
             <span className="text-lg font-black text-blue-900">

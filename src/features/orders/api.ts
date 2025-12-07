@@ -27,13 +27,19 @@ export const acceptOrder = async (orderId: string) => {
   return response.data;
 };
 
+// Tolak order (Basic: Sembunyikan, Direct: Cancel)
+export const rejectOrder = async (orderId: string) => {
+  const response = await api.patch<{ message: string }>(`/orders/${orderId}/reject`, {});
+  return response.data;
+};
+
 // Fetch incoming orders (Pesanan Masuk)
 export const fetchIncomingOrders = async () => {
   const response = await api.get<{ data: Order[] }>('/orders/incoming');
   return response.data;
 };
 
-// [BARU] Upload Bukti Penyelesaian Pekerjaan
+// Upload Bukti Penyelesaian Pekerjaan
 export const uploadCompletionEvidence = async (orderId: string, file: File, description?: string) => {
   const formData = new FormData();
   formData.append('image', file); // Field name harus 'image' sesuai config Multer di backend
@@ -53,11 +59,19 @@ export const uploadCompletionEvidence = async (orderId: string, file: File, desc
   return response.data;
 };
 
-// [BARU] Request Biaya Tambahan
+// Request Biaya Tambahan
 export const requestAdditionalFee = async (orderId: string, description: string, amount: number) => {
   const response = await api.post<{ message: string; data: Order }>(
     `/orders/${orderId}/additional-fee`,
     { description, amount }
+  );
+  return response.data;
+};
+
+// [BARU] Void/Batalkan Biaya Tambahan
+export const voidAdditionalFee = async (orderId: string, feeId: string) => {
+  const response = await api.delete<{ message: string; data: Order }>(
+    `/orders/${orderId}/fees/${feeId}`
   );
   return response.data;
 };
