@@ -128,6 +128,7 @@ export interface Order {
   totalAmount: number;
   adminFee: number;
   discountAmount: number;
+  appliedCommissionPercent?: number; // [BARU] Snapshot komisi saat order dibuat
   status: OrderStatus;
   orderType: 'direct' | 'basic';
   scheduledAt?: string;

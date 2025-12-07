@@ -95,7 +95,7 @@ export default function JobDetailPage() {
 
   const [order, setOrder] = useState<Order | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [platformFeePercent, setPlatformFeePercent] = useState<number>(12); // Default fallback
+  // [REMOVED] const [platformFeePercent, setPlatformFeePercent] = useState<number>(12);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -134,11 +134,7 @@ export default function JobDetailPage() {
         const profileRes = await fetchProfile();
         setUser(profileRes.data.profile);
         
-        // Fetch Global Config untuk Estimasi Komisi
-        const settingsRes = await api.get('/settings');
-        if (settingsRes.data?.data?.platformCommissionPercent) {
-          setPlatformFeePercent(settingsRes.data.data.platformCommissionPercent);
-        }
+        // [REMOVED] Fetch Global Config
       } catch (err) {
         console.error("Error init data:", err);
       } finally {
@@ -203,14 +199,12 @@ export default function JobDetailPage() {
 
     // 5. Estimasi Penghasilan (Jika belum completed)
     // Rumus: (Jasa + Tambahan - Diskon) - Komisi Platform
-    // Note: Admin Fee tidak masuk pendapatan mitra.
-    // Jika platform menanggung diskon, logikanya mungkin beda, tapi di backend saat ini:
-    // Revenue = (TotalTagihan - AdminFee) = (Jasa + Tambahan - Diskon)
     
     // Potensi Revenue (Sebelum potongan platform)
     const grossRevenue = serviceSubtotal - order.discountAmount;
     
-    // Estimasi Potongan Platform
+    // [FIX] Menggunakan snapshot dari DB (appliedCommissionPercent)
+    const platformFeePercent = order.appliedCommissionPercent ?? 12;
     const estimatedCommission = Math.round((grossRevenue * platformFeePercent) / 100);
     
     // Estimasi Bersih
@@ -226,7 +220,7 @@ export default function JobDetailPage() {
       estimatedNetEarnings,
       platformFeePercent
     };
-  }, [order, platformFeePercent]);
+  }, [order]); // [FIX] Hapus dependency platformFeePercent
 
   const handleStatusUpdate = async (newStatus: string) => {
     if (newStatus === 'waiting_approval') {

@@ -7,27 +7,20 @@ import Image from 'next/image';
 import { fetchMyOrders } from '@/features/orders/api';
 import { Order } from '@/features/orders/types';
 import { User } from '@/features/auth/types';
-import api from '@/lib/axios'; // Import API untuk fetch settings
+// import api from '@/lib/axios'; // TIDAK DIPERLUKAN LAGI
 
 export default function ProviderJobsPage() {
   const [jobs, setJobs] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [commissionPercent, setCommissionPercent] = useState<number>(12); // Default fallback
+  
+  // [REMOVED] const [commissionPercent, setCommissionPercent] = useState<number>(12); 
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        // 1. Fetch Global Settings untuk Komisi
-        try {
-          const settingsRes = await api.get('/settings');
-          if (settingsRes.data?.data?.platformCommissionPercent) {
-            setCommissionPercent(settingsRes.data.data.platformCommissionPercent);
-          }
-        } catch (err) {
-          console.error('Gagal memuat setting komisi, menggunakan default', err);
-        }
-
-        // 2. Fetch Orders
+        // [REMOVED] Fetch Global Settings
+        
+        // Fetch Orders
         const res = await fetchMyOrders('provider');
         setJobs(Array.isArray(res.data) ? res.data : []);
       } catch (error) {
@@ -56,15 +49,14 @@ export default function ProviderJobsPage() {
       : 0;
 
     // 2. Hitung Gross Revenue (Pendapatan Kotor sebelum potongan platform)
-    // Note: job.totalAmount = (Harga Item + Admin Fee - Diskon)
-    // Jadi, Gross Revenue = (job.totalAmount + AdditionalFees) - Admin Fee
-    // Hasilnya setara dengan: (Harga Item + AdditionalFees - Diskon)
     const grossRevenue = (job.totalAmount + additionalFeesTotal) - job.adminFee;
     
     // Proteksi agar tidak negatif
     const safeGross = Math.max(0, grossRevenue);
     
     // 3. Hitung Potongan Platform
+    // [FIX] Menggunakan snapshot dari DB atau fallback ke 12%
+    const commissionPercent = job.appliedCommissionPercent ?? 12; 
     const commissionAmount = Math.round((safeGross * commissionPercent) / 100);
     
     // 4. Pendapatan Bersih

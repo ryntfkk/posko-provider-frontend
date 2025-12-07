@@ -12,6 +12,7 @@ const CloseIcon = () => <svg className="w-5 h-5 text-white hover:text-gray-200 t
 const OpenIcon = () => <svg className="w-5 h-5 text-white hover:text-gray-200 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" /></svg>;
 const SendIcon = () => <svg className="w-5 h-5 text-white translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>;
 const BackIcon = () => <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>;
+const PaperClipIcon = () => <svg className="w-5 h-5 text-gray-500 hover:text-red-600 transition-colors cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>;
 
 interface ChatUser {
   _id: string;
@@ -19,9 +20,15 @@ interface ChatUser {
   profilePictureUrl: string;
 }
 
+interface Attachment {
+  url: string;
+  type: 'image' | 'video' | 'document';
+}
+
 interface Message {
   _id: string;
   content: string;
+  attachment?: Attachment; // [BARU] Support attachment
   sender: string | { _id: string, fullName: string };
   sentAt: string;
 }
@@ -38,21 +45,32 @@ export default function ChatWidget({ user }: { user: User }) {
   const [activeRoom, setActiveRoom] = useState<ChatRoom | null>(null);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
   
-  // [PERUBAHAN] Gunakan socket dari global hook
+  // Gunakan socket dari global hook
   const { socket, isConnected } = useSocket();
   
   const [isUnread, setIsUnread] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const myId = user?._id || user?.userId;
+
+  // Function untuk fetch ulang rooms (digunakan saat ada chat baru yg belum ada di list)
+  const fetchRooms = async () => {
+    try {
+      const res = await api.get('/chat');
+      setRooms(res.data.data);
+    } catch (error) {
+      console.error("Gagal memuat chat:", error);
+    }
+  };
 
   // 1. Load Rooms Awal
   useEffect(() => {
     const token = localStorage.getItem('posko_token');
     if (!token) return;
-
-    api.get('/chat').then(res => setRooms(res.data.data)).catch(console.error);
+    fetchRooms();
   }, []);
 
   // 2. Setup Socket Listener Global
@@ -60,10 +78,15 @@ export default function ChatWidget({ user }: { user: User }) {
     if (!socket) return;
 
     const handleReceiveMessage = (data: { roomId: string, message: Message }) => {
-        // Update List Rooms (Pindahkan room ke paling atas)
+        // Update List Rooms
         setRooms(prev => {
           const roomIndex = prev.findIndex(r => r._id === data.roomId);
-          if (roomIndex === -1) return prev; // Jika room belum ada di list (kasus chat baru), idealnya fetch ulang
+          
+          // [FIX] Jika room tidak ditemukan (chat baru dari orang lain), fetch ulang list
+          if (roomIndex === -1) {
+            fetchRooms(); // Refresh full list agar data participant muncul
+            return prev; 
+          }
 
           const updatedRoom = { 
               ...prev[roomIndex], 
@@ -79,6 +102,7 @@ export default function ChatWidget({ user }: { user: User }) {
         // Update Active Room jika sedang dibuka
         setActiveRoom(current => {
           if (current && current._id === data.roomId) {
+            // Tandai read jika sedang melihat room ini
             return { ...current, messages: [...current.messages, data.message] };
           }
           // Jika chat tertutup atau room beda, tandai unread
@@ -91,7 +115,6 @@ export default function ChatWidget({ user }: { user: User }) {
 
     socket.on('receive_message', handleReceiveMessage);
 
-    // Cleanup listener khusus komponen ini
     return () => {
       socket.off('receive_message', handleReceiveMessage);
     };
@@ -115,12 +138,46 @@ export default function ChatWidget({ user }: { user: User }) {
     setNewMessage('');
   };
 
+  // [BARU] Handler Upload Gambar
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0] && activeRoom && socket) {
+      const file = e.target.files[0];
+      if (file.size > 2 * 1024 * 1024) { // Max 2MB untuk chat widget
+        alert("Ukuran file maksimal 2MB");
+        return;
+      }
+
+      setIsUploading(true);
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        // Upload ke endpoint backend
+        const res = await api.post('/chat/attachment', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        // Emit pesan dengan attachment
+        socket.emit('send_message', {
+          roomId: activeRoom._id,
+          content: '', // Konten teks kosong jika kirim gambar
+          attachment: res.data.data // { url, type }
+        });
+      } catch (error) {
+        console.error("Gagal upload:", error);
+        alert("Gagal mengirim gambar");
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const openRoom = async (room: ChatRoom) => {
     try {
         const res = await api.get(`/chat/${room._id}`);
         setActiveRoom(res.data.data);
         
-        // [PERUBAHAN] Gunakan socket global untuk join room
         if (socket && isConnected) {
             socket.emit('join_chat', room._id);
         }
@@ -137,7 +194,10 @@ export default function ChatWidget({ user }: { user: User }) {
     return typeof sender === 'object' ? sender._id : sender;
   };
 
+  const SERVER_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api').replace('/api', '');
+
   return (
+    // [LAYOUT FIX] bottom-24 agar tidak tertutup bottom nav di mobile
     <div className="fixed bottom-24 right-4 lg:bottom-4 lg:right-4 z-50 flex flex-col items-end font-sans">
         <div 
             className={`bg-white border border-gray-300 rounded-t-lg shadow-2xl flex flex-col transition-all duration-300 ease-in-out overflow-hidden w-[320px] md:w-[360px] ${
@@ -233,9 +293,13 @@ export default function ChatWidget({ user }: { user: User }) {
                                                 </div>
                                                 <p className="text-xs text-gray-500 truncate font-medium">
                                                     {lastMsg ? (
-                                                        getSenderId(lastMsg.sender) === myId 
-                                                        ? `Anda: ${lastMsg.content}` 
-                                                        : lastMsg.content
+                                                        lastMsg.attachment ? (
+                                                            <span className="flex items-center gap-1"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> Gambar</span>
+                                                        ) : (
+                                                            getSenderId(lastMsg.sender) === myId 
+                                                            ? `Anda: ${lastMsg.content}` 
+                                                            : lastMsg.content
+                                                        )
                                                     ) : <span className="italic font-normal text-gray-400">Mulai percakapan...</span>}
                                                 </p>
                                             </div>
@@ -257,6 +321,17 @@ export default function ChatWidget({ user }: { user: User }) {
                                             ? 'bg-red-600 text-white rounded-2xl rounded-br-sm' 
                                             : 'bg-white text-gray-900 border border-gray-200 rounded-2xl rounded-bl-sm'
                                         }`}>
+                                            {/* Render Attachment Image */}
+                                            {msg.attachment && msg.attachment.type === 'image' && (
+                                                <div className="mb-1 rounded-lg overflow-hidden relative w-48 h-32 bg-black/10">
+                                                    <Image 
+                                                        src={msg.attachment.url.startsWith('http') ? msg.attachment.url : `${SERVER_URL}${msg.attachment.url}`} 
+                                                        alt="Attachment"
+                                                        fill
+                                                        className="object-cover"
+                                                    />
+                                                </div>
+                                            )}
                                             {msg.content}
                                             <div className={`text-[10px] mt-1 text-right ${isMe ? 'text-red-100' : 'text-gray-400'}`}>
                                                 {new Date(msg.sentAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit', hour12: false})}
@@ -265,6 +340,11 @@ export default function ChatWidget({ user }: { user: User }) {
                                     </div>
                                 );
                             })}
+                            {isUploading && (
+                                <div className="flex justify-end">
+                                    <div className="bg-gray-100 text-gray-500 text-xs px-3 py-1 rounded-full animate-pulse">Mengirim gambar...</div>
+                                </div>
+                            )}
                             <div ref={messagesEndRef} />
                         </div>
                     )}
@@ -274,6 +354,18 @@ export default function ChatWidget({ user }: { user: User }) {
             {isOpen && activeRoom && (
                 <div className="p-3 bg-white border-t border-gray-200 shrink-0">
                     <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                        {/* Hidden File Input */}
+                        <input 
+                            type="file" 
+                            ref={fileInputRef}
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handleFileUpload}
+                        />
+                        <button type="button" onClick={() => fileInputRef.current?.click()} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors">
+                            <PaperClipIcon />
+                        </button>
+
                         <input 
                             type="text" 
                             value={newMessage}
@@ -284,7 +376,7 @@ export default function ChatWidget({ user }: { user: User }) {
                         />
                         <button 
                             type="submit" 
-                            disabled={!newMessage.trim() || !isConnected} 
+                            disabled={(!newMessage.trim() && !isUploading) || !isConnected} 
                             className="w-9 h-9 bg-red-600 text-white rounded-full flex items-center justify-center hover:bg-red-700 shadow-md transition-all disabled:bg-gray-200 disabled:shadow-none active:scale-95"
                         >
                             <SendIcon />
