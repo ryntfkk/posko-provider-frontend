@@ -12,7 +12,7 @@ import {
   updateOrderStatus, 
   uploadCompletionEvidence, 
   requestAdditionalFee,
-  voidAdditionalFee // [BARU] Import function
+  voidAdditionalFee
 } from '@/features/orders/api';
 import { fetchProfile } from '@/features/auth/api';
 import { Order } from '@/features/orders/types';
@@ -689,8 +689,9 @@ export default function JobDetailPage() {
         </div>
 
         {/* ACTION BUTTONS */}
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 z-30 lg:relative lg:bg-transparent lg:border-0 lg:p-0">
-          <div className="max-w-4xl mx-auto flex gap-3">
+        {/* [FIX] Changed from fixed to static/relative so they are not covered by BottomNav */}
+        <div className="w-full pt-6 mt-6 border-t border-gray-200">
+          <div className="flex gap-3">
             {isAccepted && (
               <button
                 onClick={() => handleStatusUpdate('on_the_way')}

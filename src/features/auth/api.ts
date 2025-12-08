@@ -57,6 +57,19 @@ export const loginUser = async (credentials: LoginPayload) => {
   return response.data;
 };
 
+// [BARU] Fungsi Switch Role untuk Frontend
+export const switchRole = async (role: 'customer' | 'provider') => {
+  const response = await api.post<AuthResponse>('/auth/switch-role', { role });
+  
+  // Jika berhasil switch, update token baru yang mengandung role baru
+  if (response.data.data.tokens) {
+    safeSetToken(response.data.data.tokens.accessToken);
+    localStorage.setItem('posko_refresh_token', response.data.data.tokens.refreshToken);
+  }
+  
+  return response.data;
+};
+
 export const fetchProfile = async () => {
   const response = await api.get<ProfileResponse>('/auth/profile');
   return response.data;

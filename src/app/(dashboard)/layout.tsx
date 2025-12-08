@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
 import ProviderSidebar from '@/components/provider/ProviderSidebar';
 import ProviderBottomNav from '@/components/provider/ProviderBottomNav';
-import { ToastProvider, useToast } from '@/components/Toast'; // [BARU]
+import { ToastProvider, useToast } from '@/components/Toast';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
 
@@ -84,9 +84,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {/* Sidebar Desktop */}
           <ProviderSidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
           
-          <div className="flex-1 flex flex-col min-w-0 mb-16 lg:mb-0">
-            {/* Mobile Header Toggle (Opsional, jika sidebar butuh toggle) */}
-            <main className="flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="flex-1 flex flex-col min-w-0">
+            {/* [FIX UI] Padding Bottom Extra untuk Mobile
+               pb-32 (128px) memberikan ruang aman agar konten terbawah 
+               tidak tertutup oleh ProviderBottomNav yang posisinya fixed.
+               Pada Desktop (lg:), kita kembalikan padding normal (pb-8).
+            */}
+            <main className="flex-1 overflow-y-auto overflow-x-hidden pb-32 lg:pb-8">
               {children}
             </main>
           </div>

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { loginUser } from '@/features/auth/api';
+import { loginUser, switchRole } from '@/features/auth/api'; // [UPDATE] Import switchRole
 import { jwtDecode } from 'jwt-decode';
 
 const EyeIcon = () => (
@@ -69,45 +69,64 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
+      // 1. Login Dasar
       const result = await loginUser({ email, password });
-      const token = result.data.tokens.accessToken;
+      let token = result.data.tokens.accessToken;
       
+      // Simpan token awal
       localStorage.setItem('posko_token', token);
       setCookie('posko_token', token);
       
-      const decoded = jwtDecode<DecodedToken>(token);
+      let decoded = jwtDecode<DecodedToken>(token);
       
-      // [FIX] Validasi Role & Status Provider (Updated Logic)
-      const isVerifiedProvider = decoded.providerStatus === 'verified';
-      const hasProviderData = decoded.providerStatus !== undefined && decoded.providerStatus !== null;
+      // 2. Logic Role Switching
+      const providerStatus = decoded.providerStatus;
+      const roles = decoded.roles || [];
+      let activeRole = decoded.activeRole || decoded.role;
 
-      const isProviderRole = 
-        decoded.activeRole === 'provider' || 
-        decoded.role === 'provider' || 
-        (decoded.roles && decoded.roles.includes('provider'));
+      // Cek apakah user sebenarnya Provider Verified tapi sedang login sebagai Customer
+      const isVerifiedProvider = providerStatus === 'verified';
+      const hasProviderRole = roles.includes('provider');
+      const isCurrentlyCustomer = activeRole === 'customer';
 
-      const isAdmin = 
-        decoded.activeRole === 'admin' || 
-        decoded.role === 'admin' || 
-        (decoded.roles && decoded.roles.includes('admin'));
+      if (isVerifiedProvider && hasProviderRole && isCurrentlyCustomer) {
+        try {
+          // [AUTO-SWITCH] Paksa pindah ke mode provider karena ini App Mitra
+          const switchRes = await switchRole('provider');
+          token = switchRes.data.tokens.accessToken; // Update token dengan token baru (ActiveRole: Provider)
+          decoded = jwtDecode<DecodedToken>(token);
+          activeRole = 'provider'; // Update state lokal
+
+          // Token sudah tersimpan otomatis oleh fungsi switchRole di api.ts
+        } catch (switchError) {
+          console.error('Gagal auto-switch role:', switchError);
+          // Jangan block login, biarkan lanjut, nanti akan diarahkan ke become-partner atau dashboard
+          // tapi kemungkinan akses dashboard ditolak middleware jika role masih customer
+        }
+      }
+
+      // 3. Routing Direction
+      const isAdmin = roles.includes('admin') || activeRole === 'admin';
+      const isProviderActive = activeRole === 'provider';
+      const hasProviderData = providerStatus !== undefined && providerStatus !== null;
 
       if (isAdmin) {
         router.push('/dashboard');
         router.refresh();
       } 
-      // Prioritaskan status verified dari token
-      else if (isVerifiedProvider || isProviderRole) {
+      else if (isProviderActive) {
+        // Sudah pasti provider (baik dari awal atau setelah switch)
         router.push('/dashboard');
         router.refresh();
       } 
-      // Jika punya data provider tapi belum verified (pending/rejected/suspended)
       else if (hasProviderData) {
+        // Punya data provider tapi belum verified (Pending/Rejected/Suspended)
+        // Atau gagal switch role
         router.push('/become-partner');
         router.refresh();
       } 
-      // Customer murni
       else {
-        // Arahkan ke halaman pendaftaran mitra
+        // Customer murni yang belum pernah daftar
         router.push('/become-partner');
         router.refresh();
       }
