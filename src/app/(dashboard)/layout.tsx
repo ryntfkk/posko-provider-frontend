@@ -85,12 +85,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <ProviderSidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
           
           <div className="flex-1 flex flex-col min-w-0">
-            {/* [FIX UI] Padding Bottom Extra untuk Mobile
-               pb-32 (128px) memberikan ruang aman agar konten terbawah 
-               tidak tertutup oleh ProviderBottomNav yang posisinya fixed.
-               Pada Desktop (lg:), kita kembalikan padding normal (pb-8).
+            {/* [FIX UI] Padding Bottom disesuaikan untuk Docked Nav
+               pb-20 (80px) cukup untuk navigasi docked baru.
+               Pada Desktop (lg:), gunakan padding normal (pb-8).
             */}
-            <main className="flex-1 overflow-y-auto overflow-x-hidden pb-32 lg:pb-8">
+            <main className="flex-1 overflow-y-auto overflow-x-hidden pb-20 lg:pb-8">
               {children}
             </main>
           </div>
