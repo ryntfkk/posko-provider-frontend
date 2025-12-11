@@ -1,7 +1,7 @@
 // src/app/(dashboard)/layout.tsx
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
@@ -75,14 +75,16 @@ function DashboardSocketWrapper({ children }: { children: React.ReactNode }) {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
+  // [FIX] State 'isSidebarOpen' dihapus karena ProviderSidebar hanya untuk desktop (statis)
+  // dan mobile menggunakan ProviderBottomNav.
+  
   return (
     <ToastProvider>
       <DashboardSocketWrapper>
         <div className="min-h-screen bg-gray-50 flex">
           {/* Sidebar Desktop */}
-          <ProviderSidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
+          {/* [FIX] Menghapus props isOpen & setIsOpen yang menyebabkan error type mismatch */}
+          <ProviderSidebar />
           
           <div className="flex-1 flex flex-col min-w-0">
             {/* [FIX UI] Padding Bottom disesuaikan untuk Docked Nav
