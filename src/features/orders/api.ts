@@ -70,4 +70,11 @@ export const requestAdditionalFee = async (orderId: string, description: string,
 
 // [BARU] Void/Batalkan Biaya Tambahan
 export const voidAdditionalFee = async (orderId: string, feeId: string) => {
-  const response = await api.delete<{ message
+  // FIX: Menghapus generic <{...}> pada api.delete untuk menghindari error parser Turbopack
+  // karena 'delete' dianggap sebagai keyword jika diikuti tanda '<'.
+  const response = await api.delete(
+    `/orders/${orderId}/fees/${feeId}`
+  );
+  // Kita melakukan casting manual pada return value
+  return response.data as { message: string; data: Order };
+};
