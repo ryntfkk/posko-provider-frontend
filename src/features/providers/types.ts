@@ -141,3 +141,18 @@ export interface ProviderListResponse {
   message: string;
   data: Provider[];
 }
+
+// [BARU] Payload untuk Update Profile Provider (Sesuai LocationSettings.tsx)
+export interface UpdateProviderProfilePayload {
+  fullAddress?: string;
+  province?: string;
+  city?: string;
+  district?: string;
+  postalCode?: string;
+  latitude?: number;
+  longitude?: number;
+  workingHours?: {
+    start: string;
+    end: string;
+  };
+}

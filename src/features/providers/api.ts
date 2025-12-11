@@ -1,6 +1,7 @@
 // src/features/providers/api.ts
 import api from '@/lib/axios';
-import { ProviderListResponse, Provider } from './types';
+// PERBAIKAN: Import UpdateProviderProfilePayload dari types.ts agar sinkron
+import { ProviderListResponse, Provider, UpdateProviderProfilePayload } from './types';
 
 // Interface untuk parameter query
 export interface FetchProvidersParams {
@@ -53,19 +54,8 @@ export const toggleOnlineStatus = async (isOnline: boolean) => {
   return response.data;
 };
 
-// [BARU] Interface Payload Update Profile
-export interface UpdateProviderProfilePayload {
-  bio?: string;
-  address?: string;     // Alamat text operasional
-  latitude?: number;    // Koordinat Latitude
-  longitude?: number;   // Koordinat Longitude
-  workingHours?: {
-    start: string;
-    end: string;
-  };
-}
-
-// [BARU] Update Profil Operasional (Alamat, Bio, Jam Kerja)
+// [PERBAIKAN] Interface lokal dihapus karena sudah di-import dari ./types
+// Fungsi sekarang menggunakan tipe data yang benar dan lengkap
 export const updateProviderProfile = async (payload: UpdateProviderProfilePayload) => {
   const response = await api.put<{ message: string; data: Provider }>('/providers/profile', payload);
   return response.data;
