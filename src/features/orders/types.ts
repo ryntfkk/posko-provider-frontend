@@ -46,7 +46,7 @@ export interface AdditionalFee {
   _id: string;
   description: string;
   amount: number;
-  status: 'pending_approval' | 'approved_unpaid' | 'paid' | 'rejected';
+  status: 'pending_approval' | 'approved_unpaid' | 'paid' | 'rejected' | 'voided';
   paymentId?: string;
 }
 

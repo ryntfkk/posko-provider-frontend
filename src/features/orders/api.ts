@@ -70,8 +70,4 @@ export const requestAdditionalFee = async (orderId: string, description: string,
 
 // [BARU] Void/Batalkan Biaya Tambahan
 export const voidAdditionalFee = async (orderId: string, feeId: string) => {
-  const response = await api.delete<{ message: string; data: Order }>(
-    `/orders/${orderId}/fees/${feeId}`
-  );
-  return response.data;
-};
+  const response = await api.delete<{ message
