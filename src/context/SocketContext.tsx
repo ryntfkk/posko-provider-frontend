@@ -27,79 +27,67 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const router = useRouter();
 
   useEffect(() => {
-    // Ambil token dari localStorage
+    // 1. Cek Token
     const token = typeof window !== 'undefined' ? localStorage.getItem('posko_token') : null;
+    if (!token) return;
 
-    if (!token) {
-        // Jika tidak ada token, jangan inisialisasi socket (tunggu login)
-        return;
-    }
+    // [FIX] Kita Hardcode URL sementara untuk memastikan tidak ada kesalahan parsing ENV
+    // Hapus '/api' di belakang karena Socket.io dipasang di root '/'
+    const SOCKET_URL = 'https://api.poskojasa.com';
 
-    // Parsing URL API dengan aman
-    // Pastikan env variable NEXT_PUBLIC_API_URL diisi dengan benar, misal: https://api.poskojasa.com
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    let socketUrl = apiBaseUrl;
-    
-    try {
-        // Normalisasi URL untuk mengambil origin saja (protocol + domain + port)
-        // Contoh: 'https://api.poskojasa.com/api/v1' -> 'https://api.poskojasa.com'
-        const urlObj = new URL(apiBaseUrl);
-        socketUrl = urlObj.origin;
-        console.log('[Socket] Initializing connection to:', socketUrl);
-    } catch (error) {
-        console.error('[Socket] Invalid API URL format provided in env, using raw value.', error);
-    }
+    console.log('[Socket] Connecting to:', SOCKET_URL);
 
-    // Inisialisasi Socket Client
-    const socketInstance = io(socketUrl, {
+    // 2. Inisialisasi Socket
+    const socketInstance = io(SOCKET_URL, {
       auth: {
         token: token, 
       },
+      // [PENTING] Path harus sesuai dengan Nginx location /socket.io/
+      path: '/socket.io/', 
+      
+      // Strategi Koneksi:
       reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 3000,
-      // [CRITICAL] withCredentials: true Wajib ada karena backend mengecek origin spesifik
+      reconnectionAttempts: 20,
+      reconnectionDelay: 2000,
+      
+      // Keamanan:
       withCredentials: true, 
-      // Gunakan polling terlebih dahulu untuk kompatibilitas maksimal, baru upgrade ke websocket
-      // Ini membantu menghindari blokir firewall/proxy awal pada AWS
-      transports: ['polling', 'websocket'], 
-      path: '/socket.io/', // Path default, ditulis eksplisit untuk kejelasan
+      
+      // Transports: Mulai dengan Polling (lebih stabil), lalu upgrade ke WebSocket
+      transports: ['polling', 'websocket'],
     });
 
+    // 3. Event Listeners
     socketInstance.on('connect', () => {
-      console.log('✅ Socket connected successfully. ID:', socketInstance.id);
+      console.log('✅ Socket Connected! ID:', socketInstance.id);
       setIsConnected(true);
     });
 
     socketInstance.on('disconnect', (reason) => {
-      console.log('❌ Socket disconnected. Reason:', reason);
+      console.warn('❌ Socket Disconnected:', reason);
       setIsConnected(false);
     });
 
     socketInstance.on('connect_error', (err) => {
-      console.error('⚠️ Socket connection error:', err.message);
+      console.error('⚠️ Socket Error:', err.message);
       
-      // Handle spesifik error autentikasi dari middleware backend
+      // Jika token salah/expired, jangan reconnect terus menerus
       if (err.message === 'Authentication error') {
-        console.warn('⛔ Auth failed. Stopping reconnection attempts.');
-        socketInstance.disconnect(); 
-        
-        // Opsional: Redirect ke login jika token kadaluarsa/invalid
-        // localStorage.removeItem('posko_token');
-        // router.push('/login');
+        console.error('⛔ Authentication failed. Logging out...');
+        socketInstance.disconnect();
+        // Opsional: Redirect ke login
+        // router.push('/login'); 
       }
     });
 
     setSocket(socketInstance);
 
-    // Cleanup saat unmount
     return () => {
-      if (socketInstance) {
-        console.log('🔌 Unmounting SocketProvider, disconnecting...');
+      if (socketInstance.connected) {
         socketInstance.disconnect();
       }
     };
-  }, [router]); 
+  }, [router]);
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>
