@@ -3,7 +3,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { useRouter } from 'next/navigation'; // Tambahkan router untuk redirect jika perlu
+import { useRouter } from 'next/navigation';
 
 interface SocketContextType {
   socket: Socket | null;
@@ -34,15 +34,23 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         return;
     }
 
-    // Parsing URL API
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    let socketUrl = apiBaseUrl;
-    try {
-        const urlObj = new URL(apiBaseUrl);
-        socketUrl = urlObj.origin;
-    } catch (error) {
-        console.error('[Socket] Invalid API URL format, using fallback.', error);
+    // [FIX] Validasi URL API lebih ketat
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
+    let socketUrl = 'http://localhost:4000'; // Default fallback
+
+    if (apiBaseUrl) {
+        try {
+            // Pastikan URL valid dan memiliki protocol
+            const urlObj = new URL(apiBaseUrl);
+            // Gunakan origin (protocol + domain + port) tanpa path
+            socketUrl = urlObj.origin;
+        } catch (error) {
+            console.error('[Socket] Invalid NEXT_PUBLIC_API_URL format:', apiBaseUrl, error);
+            // Jangan override socketUrl jika error, biarkan fallback atau gunakan string raw jika perlu
+        }
     }
+
+    console.log('[Socket] Initializing connection to:', socketUrl);
 
     const socketInstance = io(socketUrl, {
       auth: {
@@ -65,18 +73,13 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       setIsConnected(false);
     });
 
-    // [FIX] Handle Authentication Error
+    // Handle Authentication Error
     socketInstance.on('connect_error', (err) => {
       console.error('⚠️ Socket connection error:', err.message);
       
-      // Jika server menolak karena Auth Error, jangan paksa reconnect terus-menerus
       if (err.message === 'Authentication error') {
         console.warn('⛔ Stopping socket reconnection due to auth failure.');
-        socketInstance.disconnect(); // Matikan koneksi
-        
-        // Opsional: Jika token invalid, bisa kita hapus agar user login ulang
-        // localStorage.removeItem('posko_token');
-        // router.push('/login'); 
+        socketInstance.disconnect(); 
       }
     });
 
@@ -85,7 +88,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     return () => {
       socketInstance.disconnect();
     };
-  }, [router]); // Tambahkan dependency
+  }, [router]); 
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>

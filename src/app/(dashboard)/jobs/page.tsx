@@ -1,31 +1,60 @@
 // src/app/(dashboard)/jobs/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { fetchMyOrders } from '@/features/orders/api';
 import { Order } from '@/features/orders/types';
 import { User } from '@/features/auth/types';
+import { useSocket } from '@/hooks/useSocket'; // [NEW] Import Socket Hook
 
 export default function ProviderJobsPage() {
   const [jobs, setJobs] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'requests' | 'active' | 'history'>('active');
+  
+  // [NEW] Gunakan socket untuk realtime update
+  const { useSocketEvent } = useSocket();
+
+  const loadData = useCallback(async () => {
+    try {
+      const res = await fetchMyOrders('provider');
+      setJobs(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error('Gagal memuat pekerjaan:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const res = await fetchMyOrders('provider');
-        setJobs(Array.isArray(res.data) ? res.data : []);
-      } catch (error) {
-        console.error('Gagal memuat pekerjaan:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
     loadData();
-  }, []);
+  }, [loadData]);
+
+  // [NEW] Listener Socket: Saat ada order baru (Direct) atau update status
+  useSocketEvent('order_new', (data: any) => {
+    console.log('🔔 Socket Event Received:', data);
+    
+    // Jika order direct, refresh list agar muncul di tab "Permintaan"
+    if (data.order && data.order.orderType === 'direct') {
+       loadData();
+       // Opsional: Tampilkan notifikasi toast di sini
+       alert(`Order Masuk Baru: ${data.message}`);
+    }
+    
+    // Jika order basic, arahkan user ke dashboard (opsional alert)
+    if (data.order && data.order.orderType === 'basic') {
+        // Kita tidak refresh jobs karena basic order tidak masuk sini (fetchMyOrders)
+        // Tapi kita bisa memberi tahu user
+        console.log('New Basic Order available in Dashboard');
+    }
+  });
+
+  useSocketEvent('order_status_update', (data: any) => {
+      console.log('🔄 Order Status Updated:', data);
+      loadData(); // Refresh data jika status berubah (misal customer cancel)
+  });
 
   const calculateNetEarnings = (job: Order) => {
     if (job.status === 'completed' && job.earnings) {
@@ -45,7 +74,7 @@ export default function ProviderJobsPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'paid': return 'bg-orange-100 text-orange-700 border-orange-200 animate-pulse'; // New for requests
+      case 'paid': return 'bg-orange-100 text-orange-700 border-orange-200 animate-pulse'; 
       case 'accepted': return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'on_the_way': return 'bg-orange-100 text-orange-700 border-orange-200';
       case 'working': return 'bg-purple-100 text-purple-700 border-purple-200';
@@ -69,13 +98,8 @@ export default function ProviderJobsPage() {
   };
 
   // Filter Logic
-  // Direct Orders waiting acceptance (Status 'paid')
   const requestJobs = jobs.filter(job => job.status === 'paid'); 
-  
-  // Active Jobs (Accepted but not completed/cancelled)
   const activeJobs = jobs.filter(job => ['accepted', 'on_the_way', 'working', 'waiting_approval'].includes(job.status));
-  
-  // History Jobs
   const historyJobs = jobs.filter(job => ['completed', 'cancelled', 'rejected'].includes(job.status));
 
   const filteredJobs = activeTab === 'requests' ? requestJobs : activeTab === 'active' ? activeJobs : historyJobs;
