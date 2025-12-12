@@ -4,23 +4,42 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { fetchMyOrders } from '@/features/orders/api';
+import { fetchMyOrders, fetchIncomingOrders } from '@/features/orders/api';
 import { Order } from '@/features/orders/types';
 import { User } from '@/features/auth/types';
-import { useSocket } from '@/hooks/useSocket'; // [NEW] Import Socket Hook
+import { useSocket } from '@/hooks/useSocket';
 
 export default function ProviderJobsPage() {
-  const [jobs, setJobs] = useState<Order[]>([]);
+  const [activeJobs, setActiveJobs] = useState<Order[]>([]);
+  const [requestJobs, setRequestJobs] = useState<Order[]>([]);
+  const [historyJobs, setHistoryJobs] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'requests' | 'active' | 'history'>('active');
   
-  // [NEW] Gunakan socket untuk realtime update
+  // Hook Socket untuk Realtime Update
   const { useSocketEvent } = useSocket();
 
   const loadData = useCallback(async () => {
     try {
-      const res = await fetchMyOrders('provider');
-      setJobs(Array.isArray(res.data) ? res.data : []);
+      // 1. Fetch Pekerjaan Aktif & Riwayat
+      const myOrdersRes = await fetchMyOrders('provider');
+      const myOrders = Array.isArray(myOrdersRes.data) ? myOrdersRes.data : [];
+      
+      setActiveJobs(myOrders.filter(j => ['accepted', 'on_the_way', 'working', 'waiting_approval'].includes(j.status)));
+      setHistoryJobs(myOrders.filter(j => ['completed', 'cancelled', 'rejected'].includes(j.status)));
+
+      // 2. Fetch Permintaan Masuk (Direct & Basic) - INI YANG HILANG SEBELUMNYA
+      const incomingRes = await fetchIncomingOrders();
+      const incoming = Array.isArray(incomingRes.data) ? incomingRes.data : [];
+      
+      // Filter: Hanya ambil yang statusnya searching (Basic) atau paid (Direct)
+      const validRequests = incoming.filter(j => 
+        (j.orderType === 'direct' && j.status === 'paid') ||
+        (j.orderType === 'basic' && j.status === 'searching')
+      );
+      
+      setRequestJobs(validRequests);
+
     } catch (error) {
       console.error('Gagal memuat pekerjaan:', error);
     } finally {
@@ -32,49 +51,37 @@ export default function ProviderJobsPage() {
     loadData();
   }, [loadData]);
 
-  // [NEW] Listener Socket: Saat ada order baru (Direct) atau update status
+  // [REALTIME] Refresh saat ada order baru masuk
   useSocketEvent('order_new', (data: any) => {
-    console.log('🔔 Socket Event Received:', data);
-    
-    // Jika order direct, refresh list agar muncul di tab "Permintaan"
-    if (data.order && data.order.orderType === 'direct') {
-       loadData();
-       // Opsional: Tampilkan notifikasi toast di sini
-       alert(`Order Masuk Baru: ${data.message}`);
-    }
-    
-    // Jika order basic, arahkan user ke dashboard (opsional alert)
-    if (data.order && data.order.orderType === 'basic') {
-        // Kita tidak refresh jobs karena basic order tidak masuk sini (fetchMyOrders)
-        // Tapi kita bisa memberi tahu user
-        console.log('New Basic Order available in Dashboard');
-    }
+    console.log('🔔 New Order Received via Socket!', data);
+    loadData(); // Refresh data otomatis
+    // Bisa tambahkan toast/notifikasi suara di sini
   });
 
-  useSocketEvent('order_status_update', (data: any) => {
-      console.log('🔄 Order Status Updated:', data);
-      loadData(); // Refresh data jika status berubah (misal customer cancel)
+  // [REALTIME] Refresh saat status berubah
+  useSocketEvent('order_status_update', () => {
+    loadData();
   });
 
   const calculateNetEarnings = (job: Order) => {
-    if (job.status === 'completed' && job.earnings) {
-      return job.earnings.earningsAmount;
-    }
+    if (job.status === 'completed' && job.earnings) return job.earnings.earningsAmount;
+    
     const additionalFeesTotal = job.additionalFees 
       ? job.additionalFees
           .filter(f => ['paid', 'approved_unpaid'].includes(f.status))
           .reduce((sum, f) => sum + f.amount, 0)
       : 0;
+      
     const grossRevenue = (job.totalAmount + additionalFeesTotal) - job.adminFee;
     const safeGross = Math.max(0, grossRevenue);
     const commissionPercent = job.appliedCommissionPercent ?? 12; 
-    const commissionAmount = Math.round((safeGross * commissionPercent) / 100);
-    return safeGross - commissionAmount;
+    return safeGross - Math.round((safeGross * commissionPercent) / 100);
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'paid': return 'bg-orange-100 text-orange-700 border-orange-200 animate-pulse'; 
+      case 'paid': 
+      case 'searching': return 'bg-orange-100 text-orange-700 border-orange-200 animate-pulse';
       case 'accepted': return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'on_the_way': return 'bg-orange-100 text-orange-700 border-orange-200';
       case 'working': return 'bg-purple-100 text-purple-700 border-purple-200';
@@ -87,7 +94,8 @@ export default function ProviderJobsPage() {
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'paid': return 'Perlu Konfirmasi';
+      case 'paid': return 'Permintaan Direct';
+      case 'searching': return 'Order Baru';
       case 'accepted': return 'Persiapan';
       case 'on_the_way': return 'Di Jalan';
       case 'working': return 'Sedang Kerja';
@@ -96,11 +104,6 @@ export default function ProviderJobsPage() {
       default: return status.replace(/_/g, ' ');
     }
   };
-
-  // Filter Logic
-  const requestJobs = jobs.filter(job => job.status === 'paid'); 
-  const activeJobs = jobs.filter(job => ['accepted', 'on_the_way', 'working', 'waiting_approval'].includes(job.status));
-  const historyJobs = jobs.filter(job => ['completed', 'cancelled', 'rejected'].includes(job.status));
 
   const filteredJobs = activeTab === 'requests' ? requestJobs : activeTab === 'active' ? activeJobs : historyJobs;
 
@@ -125,6 +128,9 @@ export default function ProviderJobsPage() {
           >
             Permintaan
             {requestJobs.length > 0 && (
+              <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
+            )}
+            {requestJobs.length > 0 && (
               <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
             )}
           </button>
@@ -138,24 +144,6 @@ export default function ProviderJobsPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-4">
-        {/* Info Banner untuk Order Basic */}
-        {activeTab === 'active' && activeJobs.length === 0 && (
-           <div className="mb-4 bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-start gap-3">
-             <div className="text-blue-500 mt-1">
-               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-             </div>
-             <div>
-               <p className="text-sm text-blue-800 font-medium">Mencari Order Baru?</p>
-               <p className="text-xs text-blue-600 mt-1">
-                 Order Basic dari pelanggan (Peluang) tidak muncul di sini. Cek halaman <b>Dashboard</b> untuk mengambil order baru.
-               </p>
-               <Link href="/dashboard" className="mt-2 inline-block text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold">
-                 Ke Dashboard
-               </Link>
-             </div>
-           </div>
-        )}
-
         {filteredJobs.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-gray-200">
             <div className="w-16 h-16 bg-gray-50 rounded-full mx-auto mb-4 flex items-center justify-center text-gray-300">
@@ -164,7 +152,7 @@ export default function ProviderJobsPage() {
             <h3 className="font-bold text-gray-900">
               {activeTab === 'requests' ? 'Tidak ada permintaan baru' : activeTab === 'active' ? 'Tidak ada pekerjaan aktif' : 'Belum ada riwayat'}
             </h3>
-            {activeTab === 'requests' && <p className="text-xs text-gray-500 mt-1">Direct order dari pelanggan akan muncul di sini.</p>}
+            {activeTab === 'requests' && <p className="text-xs text-gray-500 mt-1">Order dari pelanggan akan muncul di sini.</p>}
           </div>
         ) : (
           filteredJobs.map((job) => {
@@ -194,8 +182,10 @@ export default function ProviderJobsPage() {
                   <div className="min-w-0">
                     <h3 className="font-bold text-gray-900 truncate">{customer.fullName || 'Pelanggan'}</h3>
                     <p className="text-xs text-gray-500 truncate">{locationCity}</p>
-                    {job.orderType === 'direct' && (
+                    {job.orderType === 'direct' ? (
                         <span className="inline-block mt-1 text-[10px] bg-purple-100 text-purple-700 px-1.5 rounded border border-purple-200">Direct Order</span>
+                    ) : (
+                        <span className="inline-block mt-1 text-[10px] bg-green-100 text-green-700 px-1.5 rounded border border-green-200">Basic Order</span>
                     )}
                   </div>
                 </div>

@@ -27,40 +27,36 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const router = useRouter();
 
   useEffect(() => {
-    // Ambil token
     const token = typeof window !== 'undefined' ? localStorage.getItem('posko_token') : null;
 
     if (!token) {
         return;
     }
 
-    // [FIX] Validasi URL API lebih ketat
+    // [FIX] Validasi URL API lebih ketat untuk mencegah error 'wss://https/...'
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
     let socketUrl = 'http://localhost:4000'; // Default fallback
 
-    if (apiBaseUrl) {
+    if (apiBaseUrl && apiBaseUrl.startsWith('http')) {
         try {
-            // Pastikan URL valid dan memiliki protocol
             const urlObj = new URL(apiBaseUrl);
-            // Gunakan origin (protocol + domain + port) tanpa path
-            socketUrl = urlObj.origin;
+            socketUrl = urlObj.origin; // Ambil origin saja (https://domain.com)
         } catch (error) {
-            console.error('[Socket] Invalid NEXT_PUBLIC_API_URL format:', apiBaseUrl, error);
-            // Jangan override socketUrl jika error, biarkan fallback atau gunakan string raw jika perlu
+            console.error('[Socket] Invalid URL format, using fallback:', error);
         }
+    } else if (apiBaseUrl) {
+        console.warn('[Socket] NEXT_PUBLIC_API_URL seems invalid:', apiBaseUrl);
     }
 
-    console.log('[Socket] Initializing connection to:', socketUrl);
+    console.log('[Socket] Connecting to:', socketUrl);
 
     const socketInstance = io(socketUrl, {
-      auth: {
-        token: token, 
-      },
+      auth: { token },
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
-      withCredentials: true, 
-      transports: ['websocket', 'polling'], 
+      withCredentials: true,
+      transports: ['polling', 'websocket'], // [FIX] Coba polling dulu untuk stabilitas
     });
 
     socketInstance.on('connect', () => {
@@ -73,12 +69,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       setIsConnected(false);
     });
 
-    // Handle Authentication Error
     socketInstance.on('connect_error', (err) => {
       console.error('⚠️ Socket connection error:', err.message);
-      
       if (err.message === 'Authentication error') {
-        console.warn('⛔ Stopping socket reconnection due to auth failure.');
         socketInstance.disconnect(); 
       }
     });
@@ -88,7 +81,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     return () => {
       socketInstance.disconnect();
     };
-  }, [router]); 
+  }, [router]);
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>
