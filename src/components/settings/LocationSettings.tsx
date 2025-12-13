@@ -1,10 +1,11 @@
-// src/components/settings/LocationSettings.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { fetchMyProviderProfile, updateProviderProfile } from '@/features/providers/api';
+import { fetchProvinces, fetchRegionChildren, Region } from '@/features/regions/api';
 
+// Dynamic import untuk Peta (Client Side Only)
 const LocationPicker = dynamic(() => import('@/components/LocationPicker'), {
   ssr: false,
   loading: () => <div className="h-[300px] w-full bg-gray-100 animate-pulse rounded-xl flex items-center justify-center text-gray-400">Memuat Peta...</div>
@@ -12,8 +13,6 @@ const LocationPicker = dynamic(() => import('@/components/LocationPicker'), {
 
 const BackIcon = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>;
 const MapPinIcon = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
-
-interface Region { id: string; name: string; }
 
 interface LocationSettingsProps {
   onBack: () => void;
@@ -49,15 +48,19 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Load Provinsi
-        const provRes = await fetch('https://www.emsifa.com/api-wilayah-indonesia/api/provinces.json');
-        if (provRes.ok) setProvinces(await provRes.json());
+        // 1. Load Provinsi dari API Internal
+        const provRes = await fetchProvinces();
+        if (provRes.success) {
+          setProvinces(provRes.data);
+        }
 
-        // Load Existing Data
+        // 2. Load Existing Data Provider
         const providerRes = await fetchMyProviderProfile();
         const p = providerRes.data;
 
+        // Populate Address
         if (p.location?.address) {
+            // Cek apakah address string atau object (handle backward compatibility)
             if (typeof p.location.address === 'object') {
                 const addr = p.location.address as any;
                 setFullAddress(addr.fullAddress || '');
@@ -71,14 +74,19 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
             }
         }
 
+        // Populate Working Hours
         if (p.workingHours) {
           setWorkingStart(p.workingHours.start || '08:00');
           setWorkingEnd(p.workingHours.end || '17:00');
         }
         
+        // Populate Coordinates
         if (p.location?.coordinates && p.location.coordinates.length === 2) {
             const [lng, lat] = p.location.coordinates;
-            if (lat !== 0 || lng !== 0) setCoordinates([lat, lng]);
+            // Validasi sederhana agar tidak [0,0] jika belum diset
+            if (lat !== 0 || lng !== 0) {
+              setCoordinates([lat, lng]);
+            }
         }
       } catch (e) {
         console.error("Error loading location settings", e);
@@ -87,6 +95,7 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
     loadData();
   }, []);
 
+  // Handler Wilayah dengan API Internal
   const handleRegionChange = (type: 'province' | 'city' | 'district' | 'village', e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = e.target.value;
     const index = e.target.selectedIndex;
@@ -100,8 +109,9 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
 
       if(id) {
         setWilayahLoading(prev => ({ ...prev, cities: true }));
-        fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/regencies/${id}.json`)
-          .then(r => r.json()).then(setCities)
+        fetchRegionChildren(id)
+          .then(res => { if(res.success) setCities(res.data); })
+          .catch(console.error)
           .finally(() => setWilayahLoading(prev => ({ ...prev, cities: false })));
       }
     } else if (type === 'city') {
@@ -111,8 +121,9 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
 
       if(id) {
         setWilayahLoading(prev => ({ ...prev, districts: true }));
-        fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/districts/${id}.json`)
-          .then(r => r.json()).then(setDistricts)
+        fetchRegionChildren(id)
+          .then(res => { if(res.success) setDistricts(res.data); })
+          .catch(console.error)
           .finally(() => setWilayahLoading(prev => ({ ...prev, districts: false })));
       }
     } else if (type === 'district') {
@@ -121,8 +132,9 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
 
       if(id) {
         setWilayahLoading(prev => ({ ...prev, villages: true }));
-        fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/villages/${id}.json`)
-          .then(r => r.json()).then(setVillages)
+        fetchRegionChildren(id)
+          .then(res => { if(res.success) setVillages(res.data); })
+          .catch(console.error)
           .finally(() => setWilayahLoading(prev => ({ ...prev, villages: false })));
       }
     } else if (type === 'village') {
@@ -138,11 +150,13 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
 
     setIsSaving(true);
     try {
-        await updateProviderProfile({
+        // Menggunakan payload flat sesuai kode asli agar cocok dengan tipe di API client
+        const payload = {
             fullAddress,
             province: provinceName,
             city: cityName,
             district: districtName,
+            village: villageName, // Menambahkan village jika backend support
             postalCode,
             latitude: coordinates[0],
             longitude: coordinates[1],
@@ -150,7 +164,11 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
                 start: workingStart,
                 end: workingEnd
             }
-        });
+        };
+
+        // Casting payload ke any jika tipe Typescript di library updateProviderProfile sangat ketat/berbeda
+        await updateProviderProfile(payload as any); 
+        
         alert('Data operasional berhasil diperbarui!');
         onBack();
     } catch (error) {
@@ -181,6 +199,7 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
                 <div className="text-xs text-gray-500 bg-blue-50 p-3 rounded-lg border border-blue-100">
                     Klik / Tap pada peta untuk menentukan lokasi tepat tempat usaha/basecamp Anda.
                 </div>
+                {/* FIX: Menggunakan initialPosition sesuai LocationPicker Provider */}
                 <LocationPicker 
                     initialPosition={coordinates} 
                     onLocationSelect={(lat, lng) => setCoordinates([lat, lng])} 
@@ -191,31 +210,44 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
             <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
                 <h3 className="font-bold text-gray-900 text-sm">Detail Alamat</h3>
                 
+                {/* Provinsi */}
                 <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Provinsi</label>
-                    <select 
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none"
-                        value={selectedProvId}
-                        onChange={(e) => handleRegionChange('province', e)}
-                    >
-                        <option value="">{provinceName || "Pilih Provinsi..."}</option>
-                        {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    <div className="relative">
+                      <select 
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none appearance-none"
+                          value={selectedProvId}
+                          onChange={(e) => handleRegionChange('province', e)}
+                      >
+                          <option value="">{provinceName || "Pilih Provinsi..."}</option>
+                          {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                      <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-gray-400">
+                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                      </div>
+                    </div>
                 </div>
 
+                {/* Kota */}
                 <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Kota</label>
-                    <select 
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none disabled:bg-gray-100"
-                        value={selectedCityId}
-                        onChange={(e) => handleRegionChange('city', e)}
-                        disabled={!selectedProvId && !provinceName}
-                    >
-                        <option value="">{wilayahLoading.cities ? "Memuat..." : (cityName || "Pilih Kota...")}</option>
-                        {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
+                    <div className="relative">
+                      <select 
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none disabled:bg-gray-100 appearance-none"
+                          value={selectedCityId}
+                          onChange={(e) => handleRegionChange('city', e)}
+                          disabled={!selectedProvId && !provinceName}
+                      >
+                          <option value="">{wilayahLoading.cities ? "Memuat..." : (cityName || "Pilih Kota...")}</option>
+                          {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-gray-400">
+                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                      </div>
+                    </div>
                 </div>
 
+                {/* Kecamatan & Kode Pos */}
                 <div className="grid grid-cols-2 gap-4">
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Kecamatan</label>
@@ -239,6 +271,20 @@ export default function LocationSettings({ onBack }: LocationSettingsProps) {
                             className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none"
                         />
                     </div>
+                </div>
+
+                {/* Kelurahan */}
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Kelurahan</label>
+                    <select 
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm outline-none disabled:bg-gray-100"
+                        value={selectedVillageId}
+                        onChange={(e) => handleRegionChange('village', e)}
+                        disabled={!selectedDistrictId && !districtName}
+                    >
+                        <option value="">{wilayahLoading.villages ? "Memuat..." : (villageName || "Pilih...")}</option>
+                        {villages.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
                 </div>
 
                 <div>
