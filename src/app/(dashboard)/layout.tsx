@@ -81,17 +81,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <ToastProvider>
       <DashboardSocketWrapper>
-        <div className="min-h-screen bg-gray-50 flex">
+        {/* [FIX UPDATE] Mengubah min-h-screen menjadi h-[100dvh] dan overflow-hidden 
+            agar scrolling terjadi di dalam 'main' area secara terkontrol, bukan di window body.
+            Ini mencegah layout shift pada mobile browser yang menyebabkan tombol tertutup. */}
+        <div className="h-[100dvh] bg-gray-50 flex overflow-hidden">
           {/* Sidebar Desktop */}
           {/* [FIX] Menghapus props isOpen & setIsOpen yang menyebabkan error type mismatch */}
           <ProviderSidebar />
           
           <div className="flex-1 flex flex-col min-w-0">
-            {/* [FIX UI] Padding Bottom disesuaikan untuk Docked Nav
-               pb-20 (80px) cukup untuk navigasi docked baru.
-               Pada Desktop (lg:), gunakan padding normal (pb-8).
-            */}
-            <main className="flex-1 overflow-y-auto overflow-x-hidden pb-20 lg:pb-8">
+            {/* [FIX UPDATE] Padding Bottom ditingkatkan drastis (pb-32 / 128px) pada mobile
+                untuk menjamin konten terbawah tidak akan pernah tertutup oleh BottomNav.
+                Scroll behavior diset ke smooth. */}
+            <main className="flex-1 overflow-y-auto overflow-x-hidden pb-32 lg:pb-8 scroll-smooth">
               {children}
             </main>
           </div>

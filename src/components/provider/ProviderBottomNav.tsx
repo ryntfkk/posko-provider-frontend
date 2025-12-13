@@ -35,18 +35,18 @@ export default function ProviderBottomNav() {
   ];
 
   return (
-    // [FIX UI] Mengubah dari Floating Pill menjadi Docked Bar (Edge-to-Edge)
-    // z-[99] untuk memastikan selalu di atas konten
-    // pb-safe (opsional jika menggunakan plugin tailwind-safe-area, tapi disini kita pakai padding manual secukupnya)
-    <div className="lg:hidden fixed bottom-0 left-0 right-0 z-[99] bg-white border-t border-gray-200">
-      <nav className="flex justify-between items-end px-6 pt-2 pb-3 max-w-md mx-auto">
+    // [FIX UI] Ditambahkan pb-[env(safe-area-inset-bottom)] agar tidak tertutup Home Indicator (iPhone)
+    // Container fixed diubah background-nya agar menyatu dengan area safe area
+    // Shadow ditambahkan agar batas atas nav terlihat jelas
+    <div className="lg:hidden fixed bottom-0 left-0 right-0 z-[99] bg-white border-t border-gray-200 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+      <nav className="flex justify-between items-end px-6 pt-2 pb-2 max-w-md mx-auto">
         {navItems.map((item) => {
           const active = isActive(item.href);
           return (
             <Link 
               key={item.href} 
               href={item.href} 
-              className="flex-1 flex flex-col items-center justify-center group gap-1 active:scale-95 transition-transform"
+              className="flex-1 flex flex-col items-center justify-center group gap-1 active:scale-95 transition-transform py-1"
             >
               <div className={`transition-colors duration-200 ${active ? 'text-red-600' : 'text-gray-400 group-hover:text-gray-600'}`}>
                 {/* Render Component Icon dengan props className */}
