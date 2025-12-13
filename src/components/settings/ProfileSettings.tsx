@@ -3,7 +3,9 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { fetchProfile, updateProfile } from '@/features/auth/api';
+import { fetchProfile } from '@/features/auth/api';
+// [UPDATE] Import API provider untuk update profil sesuai perbaikan sebelumnya
+import { updateProviderProfile } from '@/features/providers/api'; 
 import { User } from '@/features/auth/types';
 
 // Icons
@@ -40,15 +42,14 @@ export default function ProfileSettings({ onBack }: ProfileSettingsProps) {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
+    // Kita tetap fetch data awal dari Auth Profile untuk mendapatkan Nama & No HP User
     fetchProfile().then(res => {
       const data = res.data.profile;
       setUser(data);
       setFullName(data.fullName || '');
       setPhoneNumber(data.phoneNumber || '');
-      // Asumsi bio ada di profile (menggunakan casting any jika type belum update)
       setBio((data as any).bio || '');
       
-      // Set initial preview dari URL profil yang ada
       if (data.profilePictureUrl) {
         setPreviewUrl(data.profilePictureUrl);
       }
@@ -80,20 +81,20 @@ export default function ProfileSettings({ onBack }: ProfileSettingsProps) {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // Gunakan FormData untuk mengirim file + text
       const formData = new FormData();
       
       formData.append('fullName', fullName);
       formData.append('phoneNumber', phoneNumber);
       formData.append('bio', bio);
 
-      // Hanya append jika user memilih file baru
       if (selectedFile) {
-        // Nama field harus 'profilePicture' sesuai backend route
+        // Nama field 'profilePicture' sudah sesuai dengan Backend Route
         formData.append('profilePicture', selectedFile);
       }
 
-      await updateProfile(formData);
+      // [UPDATE] Gunakan updateProviderProfile dari Provider API
+      // Backend akan mengupdate Data User (Nama, Foto) dan Data Provider (Bio) sekaligus
+      await updateProviderProfile(formData);
       
       alert('Profil berhasil diperbarui!');
       onBack();
@@ -107,7 +108,8 @@ export default function ProfileSettings({ onBack }: ProfileSettingsProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col animate-in slide-in-from-right duration-300">
+    // [PERBAIKAN] Mengubah z-50 menjadi z-[100] agar menutupi Bottom Navigation
+    <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in slide-in-from-right duration-300">
       <header className="px-4 py-4 border-b border-gray-200 flex items-center gap-3 bg-white sticky top-0 z-10">
         <button onClick={onBack} className="p-2 -ml-2 hover:bg-gray-100 rounded-full text-gray-600">
           <BackIcon />

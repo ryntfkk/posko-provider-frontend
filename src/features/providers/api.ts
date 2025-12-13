@@ -54,9 +54,8 @@ export const toggleOnlineStatus = async (isOnline: boolean) => {
   return response.data;
 };
 
-// [PERBAIKAN] Interface lokal dihapus karena sudah di-import dari ./types
-// Fungsi sekarang menggunakan tipe data yang benar dan lengkap
-export const updateProviderProfile = async (payload: UpdateProviderProfilePayload) => {
+// [PERBAIKAN] Mengizinkan payload berupa FormData untuk upload gambar
+export const updateProviderProfile = async (payload: UpdateProviderProfilePayload | FormData) => {
   const response = await api.put<{ message: string; data: Provider }>('/providers/profile', payload);
   return response.data;
 };
